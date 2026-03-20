@@ -14,6 +14,7 @@ struct HomeView: View {
     @State private var activeCheck: KYCCheck?
     @State private var inviteCheck: KYCCheck?
     @State private var showSettings = false
+    @State private var showMethodPicker = false
     @State private var searchText = ""
     @State private var isOnline = true
     @State private var netMonitor: NWPathMonitor?
@@ -36,27 +37,15 @@ struct HomeView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .shadow(color: .black.opacity(0.06), radius: 8, y: 3)
 
-                    // Verify now
-                    Button { startNew() } label: {
-                        Image(systemName: "camera.fill").font(.body.weight(.semibold)).foregroundStyle(.white)
-                            .frame(width: 44, height: 44)
+                    Button { showMethodPicker = true } label: {
+                        Image(systemName: "arrow.right").font(.body.weight(.bold)).foregroundStyle(.white)
+                            .frame(width: 48, height: 48)
                             .background(canStart ? Color.brand : Color.gray.opacity(0.3))
                             .clipShape(Circle())
-                            .shadow(color: canStart ? Color.brand.opacity(0.4) : .clear, radius: 6, y: 3)
+                            .shadow(color: canStart ? Color.brand.opacity(0.4) : .clear, radius: 8, y: 4)
                     }
                     .disabled(!canStart)
-                    .accessibilityLabel("Verify now")
-
-                    // Invite to self-verify
-                    Button { startInvite() } label: {
-                        Image(systemName: "qrcode").font(.body.weight(.semibold)).foregroundStyle(.white)
-                            .frame(width: 44, height: 44)
-                            .background(canStart && AppConfiguration.hasWorkflow ? Color.pass : Color.gray.opacity(0.3))
-                            .clipShape(Circle())
-                            .shadow(color: canStart && AppConfiguration.hasWorkflow ? Color.pass.opacity(0.4) : .clear, radius: 6, y: 3)
-                    }
-                    .disabled(!canStart || !AppConfiguration.hasWorkflow)
-                    .accessibilityLabel("Invite to self-verify")
+                    .accessibilityLabel("Start verification")
                 }
                 .padding(.horizontal, 20).padding(.vertical, 14)
                 .background(LinearGradient(colors: [Color.brand.opacity(0.04), .clear], startPoint: .top, endPoint: .bottom))
@@ -108,7 +97,17 @@ struct HomeView: View {
                 ToolbarItem(placement: .primaryAction) { Button { showSettings = true } label: { Image(systemName: "gearshape.fill").foregroundStyle(Color.brand) } }
             }
             .sheet(item: $activeCheck) { VerificationSheet(vm: vm, check: $0) }
-            .sheet(item: $inviteCheck) { InviteWaitingSheet(vm: vm, check: $0) }
+            .sheet(item: $inviteCheck) { InviteSheet(vm: vm, check: $0) }
+            .confirmationDialog("How would you like to verify \(customerName)?", isPresented: $showMethodPicker, titleVisibility: .visible) {
+                Button("Verify Here — I have their documents") { startNew() }
+                Button("Send Invite — they verify themselves") { startInvite() }
+                    .disabled(!AppConfiguration.hasWorkflow)
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                if !AppConfiguration.hasWorkflow {
+                    Text("Remote invitations require a Workflow ID. Add it in Settings.")
+                }
+            }
             .sheet(isPresented: $showSettings) { SetupView(vm: vm, isSheet: true, onReset: { appState.didReset() }, onSwitchMode: { appState.setMode(.none) }) }
             .onAppear {
                 if netMonitor == nil {

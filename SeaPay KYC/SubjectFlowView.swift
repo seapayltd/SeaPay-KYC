@@ -104,54 +104,80 @@ struct SubjectFlowView: View {
         if !sessionId.isEmpty { withAnimation { phase = .consent } }
     }
 
-    // ═══════════ SCAN QR ═══════════
+    // ═══════════ ENTER CODE ═══════════
+
+    @State private var codeInput = ""
 
     private var scanQRPhase: some View {
-        VStack(spacing: 24) {
-            Spacer()
+        ScrollView {
+            VStack(spacing: 28) {
+                Spacer(minLength: 32)
 
-            Image(systemName: "qrcode.viewfinder")
-                .font(.system(size: 64)).foregroundStyle(Color.brand.opacity(0.3))
+                Image(systemName: "person.badge.shield.checkmark")
+                    .font(.system(size: 56)).foregroundStyle(Color.brand.opacity(0.3))
 
-            VStack(spacing: 8) {
-                Text("Scan Agent's QR Code").font(.title3.weight(.semibold))
-                Text("Ask the agent to show you a QR code on their screen, then scan it to begin verification.")
-                    .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
-            }
-
-            Button { showQRScanner = true } label: {
-                Label("Open Camera to Scan", systemImage: "camera.fill")
-            }
-            .buttonStyle(PrimaryButtonStyle())
-            .padding(.horizontal, 32)
-
-            // Manual entry fallback
-            VStack(spacing: 8) {
-                Text("Or enter the session code manually:").font(.caption).foregroundStyle(.secondary)
-                HStack(spacing: 10) {
-                    TextField("Session code", text: $sessionId)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .padding(12).background(Color.surfaceMuted)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                    Button {
-                        if !sessionId.isEmpty { withAnimation { phase = .consent } }
-                    } label: {
-                        Image(systemName: "arrow.right.circle.fill").font(.title2).foregroundStyle(Color.brand)
-                    }
-                    .disabled(sessionId.isEmpty)
+                VStack(spacing: 8) {
+                    Text("Enter Your Code").font(.title3.weight(.semibold))
+                    Text("The agent will give you a verification code. Enter it below to begin.")
+                        .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
                 }
-                .padding(.horizontal, 32)
-            }
 
-            Spacer()
+                // Code input — large, centered, monospaced
+                VStack(spacing: 12) {
+                    TextField("OC-XXXXXX", text: $codeInput)
+                        .font(.system(size: 28, weight: .bold, design: .monospaced))
+                        .multilineTextAlignment(.center)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                        .padding(16)
+                        .background(Color.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .shadow(color: .black.opacity(0.06), radius: 10, y: 4)
+                        .padding(.horizontal, 40)
+
+                    Button {
+                        resolveCode()
+                    } label: {
+                        Label("Continue", systemImage: "arrow.right")
+                    }
+                    .buttonStyle(PrimaryButtonStyle(isEnabled: codeInput.count >= 4))
+                    .disabled(codeInput.count < 4)
+                    .padding(.horizontal, 40)
+                }
+
+                // QR alternative
+                VStack(spacing: 10) {
+                    Text("or scan the agent's QR code").font(.caption).foregroundStyle(.secondary)
+
+                    Button { showQRScanner = true } label: {
+                        Label("Scan QR Code", systemImage: "qrcode.viewfinder")
+                            .font(.subheadline)
+                    }
+                    .foregroundStyle(Color.brand)
+                }
+
+                Spacer(minLength: 32)
+            }
         }
         .sheet(isPresented: $showQRScanner) {
             QRScannerView { code in
                 showQRScanner = false
                 if let url = URL(string: code) { parseInviteURL(url) }
-                else { sessionId = code; if !code.isEmpty { withAnimation { phase = .consent } } }
+                else { codeInput = code; resolveCode() }
             }
+        }
+    }
+
+    private func resolveCode() {
+        // The code is "OC-XXXXXX" — the XXXXXX part is the first 6 chars of the session ID
+        // For now, we pass the raw input as the session ID prefix
+        // The full session ID will be resolved when the subject submits (the API uses vendor_data)
+        let cleaned = codeInput.replacingOccurrences(of: "OC-", with: "").replacingOccurrences(of: "oc-", with: "").trimmingCharacters(in: .whitespaces)
+        if !cleaned.isEmpty {
+            sessionId = cleaned
+            checkRef = "OC-\(cleaned)"
+            withAnimation { phase = .consent }
         }
     }
 
