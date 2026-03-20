@@ -65,7 +65,7 @@ struct SubjectFlowView: View {
                     if phase != .complete && phase != .submitting {
                         Button("Back") {
                             if phase == .scanQR {
-                                appState.setMode(.none)
+                                appState.showSubjectFlow = false
                             } else {
                                 withAnimation { phase = previousPhase }
                             }
@@ -90,11 +90,7 @@ struct SubjectFlowView: View {
         }
     }
 
-    private func checkPendingInvite() {
-        guard let url = appState.pendingInviteURL else { return }
-        parseInviteURL(url)
-        appState.pendingInviteURL = nil
-    }
+    private func checkPendingInvite() { }
 
     private func parseInviteURL(_ url: URL) {
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
@@ -232,7 +228,7 @@ struct SubjectFlowView: View {
                 .disabled(!consent)
                 .padding(.horizontal, 24)
 
-                Button { appState.setMode(.none) } label: {
+                Button { appState.showSubjectFlow = false } label: {
                     Text("Decline").font(.subheadline).foregroundStyle(.secondary)
                 }
 
@@ -396,7 +392,7 @@ struct SubjectFlowView: View {
             }
 
             Button {
-                appState.setMode(.none)
+                appState.showSubjectFlow = false
             } label: {
                 Text("Done")
             }
@@ -429,7 +425,7 @@ struct SubjectFlowView: View {
             .buttonStyle(PrimaryButtonStyle())
             .padding(.horizontal, 32)
 
-            Button { appState.setMode(.none) } label: {
+            Button { appState.showSubjectFlow = false } label: {
                 Text("Cancel").font(.subheadline).foregroundStyle(.secondary)
             }
 

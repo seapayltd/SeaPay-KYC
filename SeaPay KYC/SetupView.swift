@@ -1,225 +1,191 @@
 //
 //  SetupView.swift
-//  SeaPay KYC
+//  OceanCheck
+//
+//  Sequential setup: one field per screen. Also used as settings sheet.
 //
 
 import SwiftUI
 
-struct SetupView: View {
+// MARK: - Sequential Setup (first run — one field at a time)
+
+struct SequentialSetupView: View {
     @ObservedObject var vm: KYCViewModel
-    var isSheet = false
-    var onComplete: (() -> Void)?
-    var onReset: (() -> Void)?
-    var onSwitchMode: (() -> Void)?
+    var appState: AppState
+
+    @State private var step = 0 // 0 = welcome, 1 = access code, 2 = name
+    @State private var apiKey = ""
+    @State private var agentName = ""
+    @State private var testing = false
+    @State private var error: String?
+
+    var body: some View {
+        ZStack {
+            Color.surface.ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                Spacer()
+
+                Group {
+                    switch step {
+                    case 0: welcomeStep
+                    case 1: codeStep
+                    default: nameStep
+                    }
+                }
+                .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .move(edge: .leading).combined(with: .opacity)))
+                .id(step)
+
+                Spacer()
+
+                // Subject path — small, discoverable
+                Button { appState.showSubjectFlow = true } label: {
+                    Text("I have a verification code").font(Typo.meta).foregroundStyle(.secondary)
+                }
+                .padding(.bottom, 32)
+            }
+            .animation(.smooth(duration: 0.3), value: step)
+        }
+    }
+
+    private var welcomeStep: some View {
+        VStack(spacing: 24) {
+            Text("OceanCheck").font(BrandFont.brand(32))
+            Text("Maritime Identity Verification").font(Typo.meta).foregroundStyle(.secondary)
+
+            Spacer().frame(height: 24)
+
+            Button { withAnimation { step = 1 } } label: {
+                Text("Get Started")
+            }
+            .buttonStyle(PrimaryButtonStyle())
+            .padding(.horizontal, 48)
+        }
+    }
+
+    private var codeStep: some View {
+        VStack(spacing: 20) {
+            Text("Your access code").font(Typo.context)
+            Text("Provided by your administrator").font(Typo.meta).foregroundStyle(.secondary)
+
+            SecureField("Paste here", text: $apiKey)
+                .textInputAutocapitalization(.never).autocorrectionDisabled()
+                .font(Typo.body).multilineTextAlignment(.center)
+                .padding(16)
+                .background(Color.surfaceMuted)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .padding(.horizontal, 48)
+
+            if let error { Text(error).font(Typo.meta).foregroundStyle(Color.flagged) }
+
+            Button {
+                Task { await validateAndContinue() }
+            } label: {
+                if testing { ProgressView().tint(.surface) } else { Text("Continue") }
+            }
+            .buttonStyle(PrimaryButtonStyle(isEnabled: !apiKey.trimmingCharacters(in: .whitespaces).isEmpty && !testing))
+            .disabled(apiKey.trimmingCharacters(in: .whitespaces).isEmpty || testing)
+            .padding(.horizontal, 48)
+
+            Button { withAnimation { step = 0 } } label: {
+                Text("Back").font(Typo.meta).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var nameStep: some View {
+        VStack(spacing: 20) {
+            Text("Your name").font(Typo.context)
+            Text("Appears on verification reports").font(Typo.meta).foregroundStyle(.secondary)
+
+            TextField("First and last name", text: $agentName)
+                .textContentType(.name).font(Typo.body).multilineTextAlignment(.center)
+                .padding(16)
+                .background(Color.surfaceMuted)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .padding(.horizontal, 48)
+
+            Button {
+                UserDefaults.standard.set(agentName.trimmingCharacters(in: .whitespaces), forKey: "agentName")
+                appState.didConfigure()
+            } label: {
+                Text("Start Verifying")
+            }
+            .buttonStyle(PrimaryButtonStyle(isEnabled: !agentName.trimmingCharacters(in: .whitespaces).isEmpty))
+            .disabled(agentName.trimmingCharacters(in: .whitespaces).isEmpty)
+            .padding(.horizontal, 48)
+
+            Button { withAnimation { step = 1 } } label: {
+                Text("Back").font(Typo.meta).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func validateAndContinue() async {
+        let key = apiKey.trimmingCharacters(in: .whitespaces)
+        KeychainService.save(key, for: .diditAPIKey)
+        testing = true; error = nil
+        do {
+            try await VerificationAPIService.shared.validateAPIKey()
+            withAnimation { step = 2 }
+        } catch {
+            self.error = "Invalid code. Check with your administrator."
+        }
+        testing = false
+    }
+}
+
+// MARK: - Settings Sheet (compact, used from gear icon)
+
+struct SettingsSheet: View {
+    @ObservedObject var vm: KYCViewModel
+    var appState: AppState
     @Environment(\.dismiss) private var dismiss
 
     @State private var apiKey = ""
     @State private var agentName = ""
     @State private var workflowID = ""
-    @State private var testing = false
-    @State private var testResult: String?
-    @State private var testOK = false
     @State private var showReset = false
-    @State private var saved = false
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                LinearGradient.hero.ignoresSafeArea()
-
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 0) {
-                        if !isSheet {
-                            // ── Brand mark ──
-                            VStack(spacing: 20) {
-                                ZStack {
-                                    Circle()
-                                        .fill(LinearGradient.brand)
-                                        .frame(width: 96, height: 96)
-                                        .shadow(color: Color.brand.opacity(0.35), radius: 20, y: 8)
-
-                                    Image(systemName: "key.fill")
-                                        .font(.system(size: 40, weight: .medium))
-                                        .foregroundStyle(.white)
-                                        .symbolRenderingMode(.hierarchical)
-                                }
-
-                                VStack(spacing: 6) {
-                                    Text("OceanCheck")
-                                        .font(BrandFont.brand(28))
-                                    Text("Maritime Identity Verification")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .padding(.top, 56).padding(.bottom, 36)
-                        }
-
-                        // ── Form card ──
-                        VStack(spacing: 20) {
-                            if !isSheet {
-                                Text("Connect your account")
-                                    .font(.headline)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-
-                            // API Key
-                            VStack(alignment: .leading, spacing: 8) {
-                                Label("API Key", systemImage: "key.fill")
-                                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                                SecureField("Paste your secret key", text: $apiKey)
-                                    .textInputAutocapitalization(.never).autocorrectionDisabled()
-                                    .padding(14)
-                                    .background(Color.surfaceMuted)
-                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            }
-
-                            // Agent name
-                            VStack(alignment: .leading, spacing: 8) {
-                                Label("Your Name", systemImage: "person.fill")
-                                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                                TextField("Displayed on reports", text: $agentName)
-                                    .textContentType(.name)
-                                    .padding(14)
-                                    .background(Color.surfaceMuted)
-                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            }
-
-                            // Workflow ID (for invite flow)
-                            VStack(alignment: .leading, spacing: 8) {
-                                Label("Workflow ID", systemImage: "arrow.triangle.branch")
-                                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                                TextField("For remote invitations (optional)", text: $workflowID)
-                                    .textInputAutocapitalization(.never).autocorrectionDisabled()
-                                    .padding(14)
-                                    .background(Color.surfaceMuted)
-                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                Text("Required to invite others to self-verify. Get it from your admin console.")
-                                    .font(.system(size: 9)).foregroundStyle(.tertiary)
-                            }
-
-                            // Actions
-                            Button { save() } label: {
-                                HStack(spacing: 8) {
-                                    if saved {
-                                        Image(systemName: "checkmark").font(.subheadline.bold())
-                                            .transition(.scale.combined(with: .opacity))
-                                    }
-                                    Text(saved ? "Saved" : "Save & Continue")
-                                }
-                            }
-                            .buttonStyle(PrimaryButtonStyle(isEnabled: canSave && !saved))
-                            .disabled(!canSave || saved)
-                            .accessibilityLabel("Save settings")
-
-                            Button { Task { await test() } } label: {
-                                if testing {
-                                    HStack(spacing: 8) { ProgressView(); Text("Testing...") }
-                                } else {
-                                    Label("Test Connection", systemImage: "antenna.radiowaves.left.and.right")
-                                }
-                            }
-                            .buttonStyle(SecondaryButtonStyle())
-                            .disabled(apiKey.trimmingCharacters(in: .whitespaces).isEmpty || testing)
-
-                            // Test result
-                            if let r = testResult {
-                                HStack(spacing: 8) {
-                                    Image(systemName: testOK ? "checkmark.circle.fill" : "xmark.octagon.fill")
-                                        .font(.body)
-                                    Text(r).font(.caption)
-                                }
-                                .foregroundStyle(testOK ? Color.pass : Color.fail)
-                                .padding(12)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background((testOK ? Color.pass : Color.fail).opacity(0.08))
-                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                                .transition(.opacity.combined(with: .move(edge: .top)))
-                            }
-                        }
-                        .padding(24)
-                        .background(Color.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                        .shadow(color: .black.opacity(0.08), radius: 20, y: 8)
-                        .padding(.horizontal, 20)
-
-                        if isSheet {
-                            VStack(spacing: 12) {
-                                Divider()
-
-                                // Switch mode
-                                Button {
-                                    dismiss()
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { onSwitchMode?() }
-                                } label: {
-                                    Label("Switch to Self-Verification Mode", systemImage: "arrow.left.arrow.right")
-                                        .font(.caption).foregroundStyle(Color.brand)
-                                }
-
-                                // Reset
-                                Button(role: .destructive) { showReset = true } label: {
-                                    Label("Reset All Data", systemImage: "trash")
-                                        .font(.caption).foregroundStyle(Color.fail.opacity(0.6))
-                                }
-                            }
-                            .padding(.top, 16)
-                        } else {
-                            // First-run: link to go back to mode selection
-                            Button {
-                                onSwitchMode?()
-                            } label: {
-                                Text("Not an agent? Go back").font(.caption).foregroundStyle(.secondary)
-                            }
-                            .padding(.top, 12)
-                        }
-
-                        Spacer(minLength: 50)
-                    }
+            List {
+                Section("Access Code") {
+                    SecureField("API Key", text: $apiKey)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                }
+                Section("Agent") {
+                    TextField("Your Name", text: $agentName).textContentType(.name)
+                }
+                Section("Remote Invitations") {
+                    TextField("Workflow ID (optional)", text: $workflowID)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    Text("Required to invite others to self-verify.").font(Typo.meta).foregroundStyle(.secondary)
+                }
+                Section {
+                    Button("Save") { save(); dismiss() }
+                }
+                Section {
+                    Button("Reset All Data", role: .destructive) { showReset = true }
                 }
             }
-            .navigationTitle(isSheet ? "Settings" : "")
+            .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { if isSheet { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } } }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { save(); dismiss() } } }
             .onAppear { apiKey = KeychainService.get(.diditAPIKey) ?? ""; agentName = UserDefaults.standard.string(forKey: "agentName") ?? ""; workflowID = KeychainService.get(.workflowID) ?? "" }
             .alert("Reset Everything", isPresented: $showReset) {
                 Button("Cancel", role: .cancel) {}
-                Button("Delete All", role: .destructive) {
-                    vm.resetAll()
-                    dismiss()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { onReset?() }
-                }
-            } message: { Text("Deletes all checks, images, reports, and API key.") }
+                Button("Delete All", role: .destructive) { vm.resetAll(); dismiss(); appState.didReset() }
+            } message: { Text("Deletes all checks, images, reports, and your access code.") }
         }
-    }
-
-    private var canSave: Bool {
-        !apiKey.trimmingCharacters(in: .whitespaces).isEmpty && !agentName.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     private func save() {
-        KeychainService.save(apiKey.trimmingCharacters(in: .whitespaces), for: .diditAPIKey)
-        UserDefaults.standard.set(agentName.trimmingCharacters(in: .whitespaces), forKey: "agentName")
-        let wf = workflowID.trimmingCharacters(in: .whitespaces)
-        if !wf.isEmpty { KeychainService.save(wf, for: .workflowID) }
-        withAnimation(.spring(response: 0.3)) { saved = true }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            if isSheet {
-                dismiss()
-            } else {
-                onComplete?()
-            }
-        }
-    }
-
-    private func test() async {
-        KeychainService.save(apiKey.trimmingCharacters(in: .whitespaces), for: .diditAPIKey)
-        testing = true; withAnimation { testResult = nil }
-        do {
-            try await VerificationAPIService.shared.validateAPIKey()
-            withAnimation { testResult = "Connection successful"; testOK = true }
-        } catch {
-            withAnimation { testResult = error.localizedDescription; testOK = false }
-        }
-        testing = false
+        let k = apiKey.trimmingCharacters(in: .whitespaces)
+        if !k.isEmpty { KeychainService.save(k, for: .diditAPIKey) }
+        let n = agentName.trimmingCharacters(in: .whitespaces)
+        if !n.isEmpty { UserDefaults.standard.set(n, forKey: "agentName") }
+        let w = workflowID.trimmingCharacters(in: .whitespaces)
+        if !w.isEmpty { KeychainService.save(w, for: .workflowID) }
     }
 }

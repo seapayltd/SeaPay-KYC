@@ -1,140 +1,113 @@
 //
 //  DesignSystem.swift
-//  SeaPay KYC
+//  OceanCheck
+//
+//  Jony Ive redesign: monochrome base, color only for status,
+//  4-size typography, minimal components.
 //
 
 import SwiftUI
 
-// MARK: - Brand Font (IvyMode)
-//
-// To use: drop IvyMode-Regular.otf, IvyMode-Bold.otf, IvyMode-SemiBold.otf
-// into SeaPay KYC/Fonts/ and they'll be picked up automatically.
-// Falls back to system font if not present.
+// MARK: - Brand Font
 
 enum BrandFont {
     private static let postScriptName = "IvyMode-Regular"
     private static var registered = false
 
-    /// Register the font from the app bundle at launch. Call once.
     static func registerIfNeeded() {
-        guard !registered else { return }
-        registered = true
-
-        // Try common filenames
-        let candidates = ["ivy-mode-regular.ttf", "IvyMode-Regular.ttf", "ivy-mode-regular.otf", "IvyMode-Regular.otf"]
-        for name in candidates {
-            if let url = Bundle.main.url(forResource: name, withExtension: nil) ??
-                         Bundle.main.url(forResource: name.replacingOccurrences(of: ".ttf", with: ""), withExtension: "ttf") ??
-                         Bundle.main.url(forResource: name.replacingOccurrences(of: ".otf", with: ""), withExtension: "otf") {
-                var error: Unmanaged<CFError>?
-                if CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error) {
-                    #if DEBUG
-                    print("BrandFont: registered \(name) as \(postScriptName)")
-                    #endif
-                    return
-                }
-                #if DEBUG
-                print("BrandFont: failed to register \(name): \(error?.takeRetainedValue().localizedDescription ?? "unknown")")
-                #endif
+        guard !registered else { return }; registered = true
+        for name in ["ivy-mode-regular.ttf", "IvyMode-Regular.ttf", "ivy-mode-regular.otf", "IvyMode-Regular.otf"] {
+            if let url = Bundle.main.url(forResource: name, withExtension: nil) ?? Bundle.main.url(forResource: name.replacingOccurrences(of: ".ttf", with: ""), withExtension: "ttf") {
+                var err: Unmanaged<CFError>?
+                if CTFontManagerRegisterFontsForURL(url as CFURL, .process, &err) { return }
             }
         }
-        #if DEBUG
-        print("BrandFont: no font file found in bundle. Using system font.")
-        #endif
     }
 
-    private static var isAvailable: Bool {
-        registerIfNeeded()
-        return UIFont(name: postScriptName, size: 12) != nil
-    }
-
-    /// IvyMode Regular at the given size. Falls back to system regular if font not installed.
-    static func brand(_ size: CGFloat) -> Font {
-        isAvailable ? .custom(postScriptName, size: size) : .system(size: size)
-    }
-
-    /// UIFont version for PDF rendering — always regular weight.
-    static func uiFont(size: CGFloat) -> UIFont {
-        registerIfNeeded()
-        return UIFont(name: postScriptName, size: size) ?? .systemFont(ofSize: size)
-    }
+    private static var ok: Bool { registerIfNeeded(); return UIFont(name: postScriptName, size: 12) != nil }
+    static func brand(_ size: CGFloat) -> Font { ok ? .custom(postScriptName, size: size) : .system(size: size) }
+    static func uiFont(size: CGFloat) -> UIFont { registerIfNeeded(); return UIFont(name: postScriptName, size: size) ?? .systemFont(ofSize: size) }
 }
 
-// MARK: - Flow Layout (wrapping tags)
+// MARK: - Flow Layout
 
 struct FlowLayout: Layout {
     var spacing: CGFloat = 4
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        var x: CGFloat = 0; var y: CGFloat = 0; var rowH: CGFloat = 0
-        let maxW = proposal.width ?? .infinity
-        for sv in subviews {
-            let s = sv.sizeThatFits(.unspecified)
-            if x + s.width > maxW && x > 0 { x = 0; y += rowH + spacing; rowH = 0 }
-            x += s.width + spacing; rowH = max(rowH, s.height)
-        }
-        return CGSize(width: maxW, height: y + rowH)
+        var x: CGFloat = 0, y: CGFloat = 0, rh: CGFloat = 0; let mw = proposal.width ?? .infinity
+        for sv in subviews { let s = sv.sizeThatFits(.unspecified); if x + s.width > mw && x > 0 { x = 0; y += rh + spacing; rh = 0 }; x += s.width + spacing; rh = max(rh, s.height) }
+        return CGSize(width: mw, height: y + rh)
     }
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var x: CGFloat = bounds.minX; var y: CGFloat = bounds.minY; var rowH: CGFloat = 0
-        for sv in subviews {
-            let s = sv.sizeThatFits(.unspecified)
-            if x + s.width > bounds.maxX && x > bounds.minX { x = bounds.minX; y += rowH + spacing; rowH = 0 }
-            sv.place(at: CGPoint(x: x, y: y), proposal: .unspecified)
-            x += s.width + spacing; rowH = max(rowH, s.height)
-        }
+        var x = bounds.minX, y = bounds.minY, rh: CGFloat = 0
+        for sv in subviews { let s = sv.sizeThatFits(.unspecified); if x + s.width > bounds.maxX && x > bounds.minX { x = bounds.minX; y += rh + spacing; rh = 0 }; sv.place(at: CGPoint(x: x, y: y), proposal: .unspecified); x += s.width + spacing; rh = max(rh, s.height) }
     }
 }
 
-// MARK: - Colors
+// MARK: - Colors (monochrome base, color = status only)
 
 extension Color {
-    static let brand = Color(red: 0.07, green: 0.45, blue: 0.87)
-    static let brandDark = Color(red: 0.04, green: 0.32, blue: 0.70)
-    static let brandLight = Color(red: 0.40, green: 0.70, blue: 1.0)
+    // Monochrome
     static let surface = Color(.systemBackground)
     static let surfaceRaised = Color(.secondarySystemBackground)
     static let surfaceMuted = Color(.systemGray6)
-    static let pass = Color(red: 0.20, green: 0.72, blue: 0.40)
-    static let fail = Color(red: 0.90, green: 0.26, blue: 0.26)
-    static let warning = Color(red: 0.95, green: 0.65, blue: 0.10)
+
+    // Status — the only color in the app
+    static let clear_ = Color(red: 0.20, green: 0.62, blue: 0.38) // green — passed
+    static let flagged = Color(red: 0.85, green: 0.22, blue: 0.22) // red — failed
+    static let review = Color(red: 0.82, green: 0.58, blue: 0.10) // amber — review
+
+    // Legacy aliases (for existing code)
+    static let brand = Color.primary
+    static let pass = Color.clear_
+    static let fail = Color.flagged
+    static let warning = Color.review
 }
 
-extension LinearGradient {
-    static let brand = LinearGradient(colors: [.brand, .brandDark], startPoint: .topLeading, endPoint: .bottomTrailing)
-    static let hero = LinearGradient(colors: [Color.brand.opacity(0.06), Color.brandLight.opacity(0.02), .clear], startPoint: .top, endPoint: .bottom)
+// MARK: - Typography System (4 sizes)
+//
+//  hero:    32pt — the name being verified
+//  context: 16pt — section labels
+//  body:    13pt — data values
+//  meta:    11pt — labels, timestamps, supporting text
+
+enum Typo {
+    static let hero: Font = .system(size: 32, weight: .bold)
+    static let context: Font = .system(size: 16, weight: .semibold)
+    static let body: Font = .system(size: 13, weight: .medium)
+    static let meta: Font = .system(size: 11)
 }
 
-// MARK: - Buttons
+// MARK: - Primary Button (monochrome)
 
 struct PrimaryButtonStyle: ButtonStyle {
     var isEnabled = true
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.subheadline.weight(.semibold))
+            .font(.system(size: 13, weight: .semibold))
             .frame(maxWidth: .infinity).padding(.vertical, 15)
-            .background(isEnabled ? AnyShapeStyle(LinearGradient.brand) : AnyShapeStyle(Color.gray.opacity(0.35)))
-            .foregroundStyle(.white)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .shadow(color: isEnabled ? Color.brand.opacity(0.3) : .clear, radius: 8, y: 4)
+            .background(isEnabled ? Color.primary : Color.gray.opacity(0.3))
+            .foregroundStyle(Color.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
+            .animation(.spring(response: 0.2), value: configuration.isPressed)
     }
 }
 
 struct SecondaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.subheadline.weight(.medium))
+            .font(.system(size: 13, weight: .medium))
             .frame(maxWidth: .infinity).padding(.vertical, 15)
-            .background(Color.brand.opacity(0.08))
-            .foregroundStyle(Color.brand)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(Color.primary.opacity(0.06))
+            .foregroundStyle(.primary)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
+            .animation(.spring(response: 0.2), value: configuration.isPressed)
     }
 }
 
-// MARK: - Card
+// MARK: - Card (clean, no shadow noise)
 
 struct CardView<Content: View>: View {
     var padded = true
@@ -144,52 +117,43 @@ struct CardView<Content: View>: View {
         content
             .padding(padded ? 16 : 0)
             .background(Color.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.primary.opacity(0.06), lineWidth: 0.5))
     }
 }
 
-// MARK: - Section Header
+// MARK: - Section Header (minimal)
 
 struct SectionHeader: View {
     let title: String
     let icon: String?
     init(_ title: String, icon: String? = nil) { self.title = title; self.icon = icon }
     var body: some View {
-        HStack(spacing: 6) {
-            if let icon {
-                Image(systemName: icon)
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 22, height: 22)
-                    .background(Color.brand)
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            }
-            Text(title.uppercased())
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.secondary)
-                .tracking(0.5)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        Text(title.uppercased())
+            .font(Typo.meta).foregroundStyle(.secondary).tracking(0.8)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-// MARK: - Status Badge
+// MARK: - Status Badge (minimal)
 
 struct StatusBadge: View {
     let status: KYCCheck.CheckStatus
     var body: some View {
-        Text(status.rawValue)
-            .font(.system(size: 10, weight: .bold))
-            .padding(.horizontal, 9).padding(.vertical, 4)
-            .background(color.opacity(0.14))
+        Text(shortLabel)
+            .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(color)
-            .clipShape(Capsule())
     }
     private var color: Color {
         switch status {
-        case .pending: .gray; case .inProgress: .blue; case .passed: .pass
-        case .failed: .fail; case .requiresReview: .warning; case .incomplete: .purple
+        case .passed: .clear_; case .failed: .flagged; case .requiresReview: .review
+        case .pending: .secondary; case .inProgress: .secondary; case .incomplete: .secondary
+        }
+    }
+    private var shortLabel: String {
+        switch status {
+        case .passed: "Clear"; case .failed: "Flagged"; case .requiresReview: "Review"
+        case .pending: "Pending"; case .inProgress: "Active"; case .incomplete: "Draft"
         }
     }
 }
@@ -197,79 +161,45 @@ struct StatusBadge: View {
 // MARK: - Risk Gauge
 
 struct RiskGauge: View {
-    let score: Int
-    let size: CGFloat
-
+    let score: Int; let size: CGFloat
     var body: some View {
         ZStack {
-            Circle()
-                .stroke(Color.surfaceMuted, lineWidth: size * 0.12)
-            Circle()
-                .trim(from: 0, to: CGFloat(min(score, 100)) / 100)
-                .stroke(gaugeColor, style: StrokeStyle(lineWidth: size * 0.12, lineCap: .round))
+            Circle().stroke(Color.primary.opacity(0.06), lineWidth: size * 0.1)
+            Circle().trim(from: 0, to: CGFloat(min(score, 100)) / 100)
+                .stroke(gc, style: StrokeStyle(lineWidth: size * 0.1, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-            VStack(spacing: 0) {
-                Text("\(score)").font(.system(size: size * 0.32, weight: .bold, design: .rounded)).monospacedDigit()
-                Text(label).font(.system(size: size * 0.12, weight: .semibold)).foregroundStyle(.secondary)
-            }
-        }
-        .frame(width: size, height: size)
-        .foregroundStyle(gaugeColor)
+            Text("\(score)").font(.system(size: size * 0.3, weight: .bold, design: .rounded)).monospacedDigit().foregroundStyle(gc)
+        }.frame(width: size, height: size)
     }
-
-    private var gaugeColor: Color { score > 70 ? .fail : score > 40 ? .warning : .pass }
-    private var label: String { score > 70 ? "HIGH" : score > 40 ? "MEDIUM" : "LOW" }
+    private var gc: Color { score > 70 ? .flagged : score > 40 ? .review : .clear_ }
 }
 
-// MARK: - Verdict Banner
+// MARK: - Verdict (minimal)
 
 struct VerdictBanner: View {
     let status: KYCCheck.CheckStatus
-
     var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: icon)
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(.white)
-                .frame(width: 48, height: 48)
-                .background(color.gradient)
-                .clipShape(Circle())
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.headline)
-                Text(subtitle).font(.caption).foregroundStyle(.secondary)
-            }
+        HStack(spacing: 12) {
+            Circle().fill(color).frame(width: 10, height: 10)
+            Text(title).font(Typo.context)
             Spacer()
         }
         .padding(16)
-        .background(color.opacity(0.07))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(color.opacity(0.15), lineWidth: 1))
+        .background(color.opacity(0.05))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
-
-    private var color: Color { status == .passed ? .pass : status == .failed ? .fail : .warning }
-    private var icon: String { status == .passed ? "checkmark" : status == .failed ? "xmark" : "exclamationmark" }
-    private var title: String { status == .passed ? "All Checks Passed" : status == .failed ? "Verification Failed" : "Review Required" }
-    private var subtitle: String { status == .passed ? "Identity confirmed, compliance clear" : status == .failed ? "One or more checks did not pass" : "Warnings detected, review details" }
+    private var color: Color { status == .passed ? .clear_ : status == .failed ? .flagged : .review }
+    private var title: String { status == .passed ? "Clear" : status == .failed ? "Flagged" : "Review Required" }
 }
 
 // MARK: - Data Row
 
 struct DataRow: View {
-    let label: String
-    let value: String
-    var color: Color? = nil
-    var bold: Bool = false
-
+    let label: String; let value: String; var color: Color? = nil; var bold: Bool = false
     var body: some View {
         HStack(alignment: .top) {
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(width: 90, alignment: .leading)
-            Text(value)
-                .font(bold ? .caption.bold() : .caption.weight(.medium))
-                .foregroundStyle(color ?? .primary)
+            Text(label).font(Typo.meta).foregroundStyle(.secondary).frame(width: 90, alignment: .leading)
+            Text(value).font(bold ? .system(size: 13, weight: .semibold) : Typo.body).foregroundStyle(color ?? .primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }

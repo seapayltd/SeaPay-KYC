@@ -2,7 +2,7 @@
 //  InviteSheet.swift
 //  OceanCheck
 //
-//  Agent creates invite → shows code + share message + QR → polls for completion.
+//  Two states: (1) code + send, (2) waiting. Minimal, calm.
 //
 
 import SwiftUI
@@ -14,258 +14,118 @@ struct InviteSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var sessionId = ""
-    @State private var inviteCode = ""
+    @State private var code = ""
     @State private var error: String?
     @State private var creating = true
-    @State private var polling = false
-    @State private var status = "Waiting"
     @State private var completed = false
+    @State private var status = "Waiting"
     @State private var pollTimer: Timer?
-    @State private var showShareSheet = false
+    @State private var showShare = false
     @State private var codeCopied = false
+    @State private var sent = false
 
-    // App Store URL — replace with real ID after publishing
     private let appStoreURL = "https://apps.apple.com/app/oceancheck/id0000000000"
 
-    private var agentName: String {
+    private var agent: String {
         let full = UserDefaults.standard.string(forKey: "agentName") ?? "Agent"
-        let parts = full.split(separator: " ")
-        guard let first = parts.first else { return full }
-        return parts.count > 1 ? "\(first) \(parts.last!.first!.uppercased())." : String(first)
+        let p = full.split(separator: " "); guard let f = p.first else { return full }
+        return p.count > 1 ? "\(f) \(p.last!.first!.uppercased())." : String(f)
     }
 
-    private var inviteMessage: String {
-        """
-        Hi \(check.customerName), please complete your identity verification:
-
-        1. Download OceanCheck from the App Store:
-        \(appStoreURL)
-
-        2. Open the app → "Verify Myself" → enter code:
-        \(inviteCode)
-
-        Takes 2 minutes. Your data is processed securely.
-
-        — \(agentName), SeaPay\u{00AE}
-        """
-    }
-
-    private var deepLinkURL: String {
-        "\(AppConfiguration.urlScheme)://verify?session=\(sessionId)&code=\(inviteCode)&agent=\(agentName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
+    private var message: String {
+        "Hi \(check.customerName), please verify your identity:\n\n1. Download OceanCheck:\n\(appStoreURL)\n\n2. Open → \"Verify Myself\" → code:\n\(code)\n\nTakes 2 minutes.\n— \(agent), SeaPay\u{00AE}"
     }
 
     var body: some View {
         NavigationStack {
             Group {
-                if creating {
-                    VStack(spacing: 16) { Spacer(); ProgressView(); Text("Setting up...").font(.subheadline).foregroundStyle(.secondary); Spacer() }
-                } else if let error {
-                    errorView(error)
-                } else if completed {
-                    completedView
-                } else {
-                    inviteView
-                }
+                if creating { VStack { Spacer(); ProgressView(); Spacer() } }
+                else if let error { VStack { Spacer(); Text(error).font(Typo.meta).foregroundStyle(.secondary).padding(32); Button("Retry") { Task { await create() } }.buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 48); Spacer() } }
+                else if completed { doneView }
+                else { mainView }
             }
-            .background(Color.surfaceRaised.ignoresSafeArea())
-            .navigationTitle("Invite")
+            .background(Color.surface.ignoresSafeArea())
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { stopPolling(); dismiss() } } }
-            .task { await createSession() }
-            .onDisappear { stopPolling() }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { stop(); dismiss() } } }
+            .task { await create() }
+            .onDisappear { stop() }
         }
     }
 
-    // ═══════════ MAIN INVITE VIEW ═══════════
-
-    private var inviteView: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 24) {
-
-                // Header
-                VStack(spacing: 4) {
-                    Text("Invite \(check.customerName)").font(.headline)
-                    Text("to verify their identity").font(.subheadline).foregroundStyle(.secondary)
-                }
-                .padding(.top, 12)
-
-                // ── CODE ──
-                VStack(spacing: 8) {
-                    Text("VERIFICATION CODE").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary).tracking(1)
-
-                    Text(inviteCode)
-                        .font(.system(size: 36, weight: .bold, design: .monospaced))
-                        .tracking(4)
-                        .padding(.horizontal, 32).padding(.vertical, 16)
-                        .background(Color.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .shadow(color: .black.opacity(0.08), radius: 12, y: 4)
-                        .onTapGesture { copyCode() }
-
-                    if codeCopied {
-                        Text("Copied!").font(.caption2.weight(.medium)).foregroundStyle(Color.pass)
-                            .transition(.opacity)
-                    } else {
-                        Text("Tap to copy").font(.caption2).foregroundStyle(.secondary)
-                    }
-                }
-
-                // ── SHARE ──
-                Button { showShareSheet = true } label: {
-                    Label("Send Invite", systemImage: "paperplane.fill")
-                }
-                .buttonStyle(PrimaryButtonStyle())
-                .padding(.horizontal, 24)
-
-                // ── INSTRUCTIONS ──
-                CardView {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("TELL THEM TO:").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary).tracking(0.5)
-
-                        instructionRow("1", "Download OceanCheck from the App Store")
-                        instructionRow("2", "Open the app and tap \"Verify Myself\"")
-                        instructionRow("3", "Enter code \(inviteCode)")
-                    }
-                }
-                .padding(.horizontal, 24)
-
-                // ── QR (secondary) ──
-                VStack(spacing: 8) {
-                    Text("Or scan in person").font(.caption).foregroundStyle(.secondary)
-
-                    if let qr = generateQR(deepLinkURL) {
-                        Image(uiImage: qr)
-                            .interpolation(.none)
-                            .resizable().scaledToFit()
-                            .frame(width: 120, height: 120)
-                            .background(Color.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                            .shadow(color: .black.opacity(0.06), radius: 8, y: 3)
-                    }
-                }
-
-                // ── STATUS ──
-                Divider().padding(.horizontal, 24)
-
-                HStack(spacing: 10) {
-                    if polling {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Circle().fill(status == "Waiting" ? Color.warning : Color.pass).frame(width: 8, height: 8)
-                    }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Status: \(status)").font(.subheadline.weight(.medium))
-                        Text("Auto-checking every 5 seconds").font(.caption2).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                }
-                .padding(.horizontal, 28)
-
-                Spacer(minLength: 32)
-            }
-        }
-        .sheet(isPresented: $showShareSheet) {
-            ActivityView(items: [inviteMessage])
-        }
-    }
-
-    // ═══════════ COMPLETED ═══════════
-
-    private var completedView: some View {
-        VStack(spacing: 20) {
+    // State 1: code + send
+    private var mainView: some View {
+        VStack(spacing: 0) {
             Spacer()
-            Image(systemName: "checkmark.seal.fill").font(.system(size: 56)).foregroundStyle(Color.pass)
-            VStack(spacing: 6) {
-                Text("Verification Received").font(.title3.weight(.semibold))
-                Text("\(check.customerName) has completed their verification. Review the results in the check details.")
-                    .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 32)
+
+            if !sent {
+                // Large code
+                VStack(spacing: 12) {
+                    Text(code)
+                        .font(.system(size: 40, weight: .bold, design: .monospaced))
+                        .tracking(6)
+                        .onTapGesture { UIPasteboard.general.string = code; withAnimation { codeCopied = true }; DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { withAnimation { codeCopied = false } } }
+
+                    Text(codeCopied ? "Copied" : "Tap to copy").font(Typo.meta).foregroundStyle(.secondary)
+                }
+
+                Spacer().frame(height: 32)
+
+                Button { showShare = true } label: { Text("Send Invite") }
+                    .buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 48)
+                    .sheet(isPresented: $showShare) {
+                        ActivityView(items: [message])
+                            .onDisappear { withAnimation(.smooth) { sent = true } }
+                    }
+            } else {
+                // State 2: waiting — calm
+                VStack(spacing: 16) {
+                    Text(code).font(.system(size: 20, weight: .bold, design: .monospaced)).foregroundStyle(.secondary)
+
+                    Circle()
+                        .fill(Color.primary.opacity(0.06))
+                        .frame(width: 64, height: 64)
+                        .overlay { ProgressView() }
+
+                    Text("Waiting for \(check.customerName)...")
+                        .font(Typo.body).foregroundStyle(.secondary)
+                }
             }
-            Button("View Results") { dismiss() }
-                .buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 32)
+
             Spacer()
         }
     }
 
-    // ═══════════ ERROR ═══════════
-
-    private func errorView(_ msg: String) -> some View {
+    private var doneView: some View {
         VStack(spacing: 16) {
             Spacer()
-            Image(systemName: "xmark.circle.fill").font(.system(size: 48)).foregroundStyle(Color.fail)
-            Text(msg).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 32)
-            Button("Retry") { Task { await createSession() } }.buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 32)
+            Circle().fill(Color.clear_.opacity(0.1)).frame(width: 64, height: 64)
+                .overlay { Image(systemName: "checkmark").font(.title2).foregroundStyle(Color.clear_) }
+            Text("Done").font(Typo.context)
+            Text("\(check.customerName) completed verification.").font(Typo.meta).foregroundStyle(.secondary)
+            Button("View Results") { dismiss() }.buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 48)
             Spacer()
         }
     }
 
-    // ═══════════ HELPERS ═══════════
-
-    private func instructionRow(_ num: String, _ text: String) -> some View {
-        HStack(spacing: 10) {
-            Text(num).font(.caption.bold()).foregroundStyle(.white)
-                .frame(width: 20, height: 20).background(Color.brand).clipShape(Circle())
-            Text(text).font(.caption)
-        }
-    }
-
-    private func copyCode() {
-        UIPasteboard.general.string = inviteCode
-        withAnimation { codeCopied = true }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { withAnimation { codeCopied = false } }
-    }
-
-    // ═══════════ SESSION + POLLING ═══════════
-
-    private func createSession() async {
+    private func create() async {
         creating = true; error = nil
         do {
-            let result = try await vm.createInviteSession(checkId: check.id)
-            sessionId = result.sessionId
-            // Code = first 6 chars of session ID, uppercase
-            inviteCode = "OC-" + String(result.sessionId.replacingOccurrences(of: "-", with: "").prefix(6)).uppercased()
-            creating = false
-            startPolling()
-        } catch {
-            self.error = error.localizedDescription
-            creating = false
-        }
+            let r = try await vm.createInviteSession(checkId: check.id)
+            sessionId = r.sessionId
+            code = "OC-" + String(r.sessionId.replacingOccurrences(of: "-", with: "").prefix(6)).uppercased()
+            creating = false; startPoll()
+        } catch { self.error = error.localizedDescription; creating = false }
     }
 
-    private func startPolling() {
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in Task { await pollOnce() } }
-    }
+    private func startPoll() { pollTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { _ in Task { await poll() } } }
+    private func stop() { pollTimer?.invalidate(); pollTimer = nil }
 
-    private func stopPolling() { pollTimer?.invalidate(); pollTimer = nil }
-
-    private func pollOnce() async {
+    private func poll() async {
         guard !sessionId.isEmpty else { return }
-        polling = true
         do {
-            let decision = try await vm.pollSessionDecision(checkId: check.id, sessionId: sessionId)
-            status = decision.status
-            if decision.status == "Approved" || decision.status == "Declined" {
-                stopPolling()
-                withAnimation { completed = true }
-            }
-        } catch { /* keep polling */ }
-        polling = false
-    }
-
-    // ═══════════ QR ═══════════
-
-    private func generateQR(_ string: String) -> UIImage? {
-        guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
-        filter.setValue(string.data(using: .utf8), forKey: "inputMessage")
-        filter.setValue("M", forKey: "inputCorrectionLevel")
-        guard let ci = filter.outputImage else { return nil }
-        let ctx = CIContext()
-        guard let cg = ctx.createCGImage(ci, from: ci.extent) else { return nil }
-        let s: CGFloat = 512
-        UIGraphicsBeginImageContextWithOptions(CGSize(width: s, height: s), true, 1)
-        guard let g = UIGraphicsGetCurrentContext() else { return nil }
-        g.interpolationQuality = .none; g.scaleBy(x: 1, y: -1); g.translateBy(x: 0, y: -s)
-        g.draw(cg, in: CGRect(x: 0, y: 0, width: s, height: s))
-        let img = UIGraphicsGetImageFromCurrentImageContext(); UIGraphicsEndImageContext()
-        return img
+            let d = try await vm.pollSessionDecision(checkId: check.id, sessionId: sessionId)
+            status = d.status
+            if d.status == "Approved" || d.status == "Declined" { stop(); withAnimation { completed = true } }
+        } catch {}
     }
 }
