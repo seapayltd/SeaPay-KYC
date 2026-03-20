@@ -15,8 +15,10 @@ enum KeychainService: Sendable {
         case authToken
         case refreshToken
         case diditAPIKey
+        case workflowID
         case diditAccessToken
         case diditTokenExpiry
+        case appMode // "agent" or "subject"
     }
 
     nonisolated static func save(_ value: String, for key: Key) {

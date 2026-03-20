@@ -14,6 +14,7 @@ struct SetupView: View {
 
     @State private var apiKey = ""
     @State private var agentName = ""
+    @State private var workflowID = ""
     @State private var testing = false
     @State private var testResult: String?
     @State private var testOK = false
@@ -83,6 +84,19 @@ struct SetupView: View {
                                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                             }
 
+                            // Workflow ID (for invite flow)
+                            VStack(alignment: .leading, spacing: 8) {
+                                Label("Workflow ID", systemImage: "arrow.triangle.branch")
+                                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                                TextField("For remote invitations (optional)", text: $workflowID)
+                                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                                    .padding(14)
+                                    .background(Color.surfaceMuted)
+                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                Text("Required to invite others to self-verify. Get it from your admin console.")
+                                    .font(.system(size: 9)).foregroundStyle(.tertiary)
+                            }
+
                             // Actions
                             Button { save() } label: {
                                 HStack(spacing: 8) {
@@ -144,7 +158,7 @@ struct SetupView: View {
             .navigationTitle(isSheet ? "Settings" : "")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { if isSheet { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } } }
-            .onAppear { apiKey = KeychainService.get(.diditAPIKey) ?? ""; agentName = UserDefaults.standard.string(forKey: "agentName") ?? "" }
+            .onAppear { apiKey = KeychainService.get(.diditAPIKey) ?? ""; agentName = UserDefaults.standard.string(forKey: "agentName") ?? ""; workflowID = KeychainService.get(.workflowID) ?? "" }
             .alert("Reset Everything", isPresented: $showReset) {
                 Button("Cancel", role: .cancel) {}
                 Button("Delete All", role: .destructive) {
@@ -163,6 +177,8 @@ struct SetupView: View {
     private func save() {
         KeychainService.save(apiKey.trimmingCharacters(in: .whitespaces), for: .diditAPIKey)
         UserDefaults.standard.set(agentName.trimmingCharacters(in: .whitespaces), forKey: "agentName")
+        let wf = workflowID.trimmingCharacters(in: .whitespaces)
+        if !wf.isEmpty { KeychainService.save(wf, for: .workflowID) }
         withAnimation(.spring(response: 0.3)) { saved = true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
             if isSheet {

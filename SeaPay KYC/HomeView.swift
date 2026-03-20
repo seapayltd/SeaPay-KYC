@@ -12,6 +12,7 @@ struct HomeView: View {
 
     @State private var customerName = ""
     @State private var activeCheck: KYCCheck?
+    @State private var inviteCheck: KYCCheck?
     @State private var showSettings = false
     @State private var searchText = ""
     @State private var isOnline = true
@@ -35,17 +36,27 @@ struct HomeView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .shadow(color: .black.opacity(0.06), radius: 8, y: 3)
 
+                    // Verify now
                     Button { startNew() } label: {
-                        Image(systemName: "arrow.right").font(.body.weight(.bold)).foregroundStyle(.white)
-                            .frame(width: 48, height: 48)
+                        Image(systemName: "camera.fill").font(.body.weight(.semibold)).foregroundStyle(.white)
+                            .frame(width: 44, height: 44)
                             .background(canStart ? Color.brand : Color.gray.opacity(0.3))
                             .clipShape(Circle())
-                            .shadow(color: canStart ? Color.brand.opacity(0.4) : .clear, radius: 8, y: 4)
+                            .shadow(color: canStart ? Color.brand.opacity(0.4) : .clear, radius: 6, y: 3)
                     }
                     .disabled(!canStart)
-                    .animation(.spring(response: 0.3), value: canStart)
-                    .accessibilityLabel("Start verification")
-                    .accessibilityHint("Creates a new KYC check and opens the verification flow")
+                    .accessibilityLabel("Verify now")
+
+                    // Invite to self-verify
+                    Button { startInvite() } label: {
+                        Image(systemName: "qrcode").font(.body.weight(.semibold)).foregroundStyle(.white)
+                            .frame(width: 44, height: 44)
+                            .background(canStart && AppConfiguration.hasWorkflow ? Color.pass : Color.gray.opacity(0.3))
+                            .clipShape(Circle())
+                            .shadow(color: canStart && AppConfiguration.hasWorkflow ? Color.pass.opacity(0.4) : .clear, radius: 6, y: 3)
+                    }
+                    .disabled(!canStart || !AppConfiguration.hasWorkflow)
+                    .accessibilityLabel("Invite to self-verify")
                 }
                 .padding(.horizontal, 20).padding(.vertical, 14)
                 .background(LinearGradient(colors: [Color.brand.opacity(0.04), .clear], startPoint: .top, endPoint: .bottom))
@@ -97,6 +108,7 @@ struct HomeView: View {
                 ToolbarItem(placement: .primaryAction) { Button { showSettings = true } label: { Image(systemName: "gearshape.fill").foregroundStyle(Color.brand) } }
             }
             .sheet(item: $activeCheck) { VerificationSheet(vm: vm, check: $0) }
+            .sheet(item: $inviteCheck) { InviteWaitingSheet(vm: vm, check: $0) }
             .sheet(isPresented: $showSettings) { SetupView(vm: vm, isSheet: true, onReset: { appState.didReset() }) }
             .onAppear {
                 if netMonitor == nil {
@@ -110,8 +122,13 @@ struct HomeView: View {
     }
 
     private var canStart: Bool { !customerName.trimmingCharacters(in: .whitespaces).isEmpty }
+
     private func startNew() {
         let check = vm.createCheck(customerName: customerName.trimmingCharacters(in: .whitespaces)); customerName = ""; nameFocused = false; activeCheck = check
+    }
+
+    private func startInvite() {
+        let check = vm.createCheck(customerName: customerName.trimmingCharacters(in: .whitespaces)); customerName = ""; nameFocused = false; inviteCheck = check
     }
     private var filtered: [KYCCheck] {
         searchText.isEmpty ? vm.checks : vm.checks.filter { $0.customerName.localizedCaseInsensitiveContains(searchText) || ($0.documentNumber ?? "").localizedCaseInsensitiveContains(searchText) || ($0.extractedName ?? "").localizedCaseInsensitiveContains(searchText) }

@@ -70,6 +70,64 @@ class KYCViewModel: ObservableObject {
         return check
     }
 
+    // MARK: - Invite Flow (session-based)
+
+    func createInviteSession(checkId: String) async throws -> (sessionId: String, qrURL: String, verifyURL: String) {
+        guard let i = idx(checkId) else { throw AppError.verificationFailed("Check not found") }
+        let wf = AppConfiguration.workflowID
+        guard !wf.isEmpty else { throw AppError.missingRequiredField("Workflow ID — configure it in Settings") }
+
+        let agent = UserDefaults.standard.string(forKey: "agentName") ?? "Agent"
+        let ref = "OC-\(String(checks[i].id.prefix(8)).uppercased())"
+
+        let session = try await api.createSession(workflowID: wf, vendorData: checks[i].customerName)
+        let sessionId = session.sessionId
+
+        checks[i].status = .inProgress
+        save()
+
+        // Build the deep link for QR
+        let qrURL = "\(AppConfiguration.urlScheme)://verify?session=\(sessionId)&agent=\(agent.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")&ref=\(ref)"
+
+        // The hosted verification URL (fallback for non-app users)
+        let verifyURL = session.url ?? ""
+
+        return (sessionId, qrURL, verifyURL)
+    }
+
+    func pollSessionDecision(checkId: String, sessionId: String) async throws -> SessionDecision {
+        let decision = try await api.getSessionDecision(sessionId: sessionId)
+
+        if let i = idx(checkId) {
+            switch decision.status {
+            case "Approved": checks[i].status = .passed
+            case "Declined": checks[i].status = .failed
+            default: break // still in progress
+            }
+
+            // Extract data from decision
+            if let idResult = decision.idVerifications?.first {
+                checks[i].extractedName = idResult.extractedFullName
+                checks[i].documentType = idResult.documentType
+                checks[i].documentNumber = idResult.documentNumber
+                checks[i].dateOfBirth = idResult.dateOfBirth
+                checks[i].nationality = idResult.nationality
+            }
+            if let amlResult = decision.aml?.first {
+                checks[i].amlStatus = amlResult.status
+                checks[i].amlScore = amlResult.score
+                checks[i].amlHitCount = amlResult.totalHits
+            }
+
+            if decision.status == "Approved" || decision.status == "Declined" {
+                checks[i].completedAt = Date()
+            }
+            save()
+        }
+
+        return decision
+    }
+
     func configureCheck(checkId: String, docType: KYCCheck.IDDocType, depth: KYCCheck.InvestigationDepth) {
         guard let i = idx(checkId) else { return }
         checks[i].expectedDocType = docType

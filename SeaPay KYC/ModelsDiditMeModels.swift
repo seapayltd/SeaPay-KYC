@@ -7,6 +7,63 @@
 
 import Foundation
 
+// MARK: - Session Responses
+
+struct SessionResponse: Codable, Sendable {
+    nonisolated let sessionId: String
+    nonisolated let sessionToken: String?
+    nonisolated let url: String?
+    nonisolated let status: String?
+    nonisolated let workflowId: String?
+    nonisolated let vendorData: String?
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case sessionToken = "session_token"
+        case url, status
+        case workflowId = "workflow_id"
+        case vendorData = "vendor_data"
+    }
+
+    nonisolated init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sessionId = try c.decode(String.self, forKey: .sessionId)
+        sessionToken = try c.decodeIfPresent(String.self, forKey: .sessionToken)
+        url = try c.decodeIfPresent(String.self, forKey: .url)
+        status = try c.decodeIfPresent(String.self, forKey: .status)
+        workflowId = try c.decodeIfPresent(String.self, forKey: .workflowId)
+        vendorData = try c.decodeIfPresent(String.self, forKey: .vendorData)
+    }
+}
+
+struct SessionDecision: Codable, Sendable {
+    nonisolated let sessionId: String
+    nonisolated let status: String
+    nonisolated let vendorData: String?
+    nonisolated let features: [String]?
+    nonisolated let idVerifications: [IDResult]?
+    nonisolated let aml: [AMLResult]?
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case status
+        case vendorData = "vendor_data"
+        case features
+        case idVerifications = "id_verifications"
+        case aml
+    }
+
+    nonisolated init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sessionId = try c.decode(String.self, forKey: .sessionId)
+        status = try c.decode(String.self, forKey: .status)
+        vendorData = try c.decodeIfPresent(String.self, forKey: .vendorData)
+        features = try c.decodeIfPresent([String].self, forKey: .features)
+        idVerifications = try c.decodeIfPresent([IDResult].self, forKey: .idVerifications)
+        aml = try c.decodeIfPresent([AMLResult].self, forKey: .aml)
+    }
+}
+
 // MARK: - ID Verification Response
 
 struct IDVerificationResponse: Codable, Sendable {

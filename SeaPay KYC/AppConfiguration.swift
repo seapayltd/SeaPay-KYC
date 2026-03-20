@@ -23,6 +23,17 @@ enum AppConfiguration: Sendable {
         return plistValue(for: "KYC_API_KEY") ?? ""
     }
 
+    nonisolated static var workflowID: String {
+        KeychainService.get(.workflowID) ?? ""
+    }
+
+    nonisolated static var isAgentConfigured: Bool { !apiKey.isEmpty }
+    nonisolated static var hasWorkflow: Bool { !workflowID.isEmpty }
+
+    // MARK: - Deep Links
+
+    nonisolated static let urlScheme = "oceancheck"
+
     // MARK: - Limits
 
     nonisolated static let maxImageSizeMB = 5

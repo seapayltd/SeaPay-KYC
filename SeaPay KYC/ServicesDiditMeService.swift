@@ -233,6 +233,43 @@ actor VerificationAPIService {
         }
     }
 
+    // MARK: - Session-Based Flow (for invites)
+
+    /// Creates a hosted verification session. Returns session ID + verification URL.
+    func createSession(workflowID: String, vendorData: String? = nil, callbackURL: String? = nil) async throws -> SessionResponse {
+        let apiKey = try key()
+        guard let url = URL(string: "\(baseURL)/session/") else { throw AppError.invalidURL }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "accept")
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+
+        var payload: [String: Any] = ["workflow_id": workflowID]
+        if let v = vendorData { payload["vendor_data"] = v }
+        if let c = callbackURL { payload["callback"] = c }
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+        apiLogger.info("Creating session for workflow: \(workflowID)")
+        let (data, _) = try await network.perform(request)
+        return try JSONDecoder().decode(SessionResponse.self, from: data)
+    }
+
+    /// Retrieves decision for a completed session.
+    func getSessionDecision(sessionId: String) async throws -> SessionDecision {
+        let apiKey = try key()
+        guard let url = URL(string: "\(baseURL)/session/\(sessionId)/decision/") else { throw AppError.invalidURL }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "accept")
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+
+        let (data, _) = try await network.perform(request)
+        return try JSONDecoder().decode(SessionDecision.self, from: data)
+    }
+
     // MARK: - File Type Detection
 
     /// Detects file type from magic bytes and returns (filename, mimeType).
