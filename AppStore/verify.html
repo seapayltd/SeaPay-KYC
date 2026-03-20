@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OceanCheck — Report Verification</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f7; color: #1a1a1a; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+        .card { background: white; border-radius: 16px; box-shadow: 0 4px 24px rgba(0,0,0,0.08); max-width: 520px; width: 100%; overflow: hidden; }
+        .header { background: #000; padding: 24px 32px; }
+        .header h1 { color: white; font-size: 22px; font-weight: 700; }
+        .header p { color: rgba(255,255,255,0.5); font-size: 12px; margin-top: 4px; }
+        .body { padding: 32px; }
+        .status { display: flex; align-items: center; gap: 14px; padding: 16px; border-radius: 10px; margin-bottom: 24px; }
+        .status.pass { background: rgba(21,140,64,0.06); border-left: 4px solid #158c40; }
+        .status.fail { background: rgba(179,30,30,0.06); border-left: 4px solid #b31e1e; }
+        .status.review { background: rgba(166,128,20,0.06); border-left: 4px solid #a68014; }
+        .status .icon { font-size: 28px; }
+        .status .text h2 { font-size: 16px; font-weight: 700; }
+        .status .text p { font-size: 12px; color: #666; margin-top: 2px; }
+        .details { border-top: 1px solid #eee; padding-top: 20px; }
+        .row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f5f5f5; font-size: 14px; }
+        .row .label { color: #888; }
+        .row .value { font-weight: 600; text-align: right; max-width: 60%; word-break: break-all; }
+        .hash { margin-top: 20px; padding: 12px; background: #f8f8f8; border-radius: 8px; font-family: 'SF Mono', monospace; font-size: 9px; color: #aaa; word-break: break-all; line-height: 1.5; }
+        .hash strong { color: #666; font-size: 10px; display: block; margin-bottom: 4px; }
+        .footer { padding: 16px 32px; background: #fafafa; border-top: 1px solid #eee; text-align: center; font-size: 11px; color: #aaa; }
+        .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; }
+        .badge.green { background: rgba(21,140,64,0.1); color: #158c40; }
+        .badge.red { background: rgba(179,30,30,0.1); color: #b31e1e; }
+        .badge.amber { background: rgba(166,128,20,0.1); color: #a68014; }
+        .no-data { text-align: center; padding: 40px; color: #aaa; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <div class="header">
+        <h1>OceanCheck</h1>
+        <p>Report Authenticity Verification</p>
+    </div>
+
+    <div class="body" id="content">
+        <div class="no-data" id="loading">Verifying report...</div>
+    </div>
+
+    <div class="footer">
+        OceanCheck by SeaPay&reg; &mdash; Maritime Identity Verification<br>
+        <a href="https://seapay.me" style="color: #1273DE; text-decoration: none;">seapay.me</a>
+    </div>
+</div>
+
+<script>
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get('ref');
+    const name = params.get('name');
+    const status = params.get('status');
+    const aml = params.get('aml');
+    const score = params.get('score');
+    const doc = params.get('doc');
+    const docnum = params.get('docnum');
+    const date = params.get('date');
+    const hash = params.get('hash');
+
+    const content = document.getElementById('content');
+
+    if (!ref || !hash) {
+        content.innerHTML = '<div class="no-data">⚠️ Invalid verification link.<br><br>This link does not contain valid report data.</div>';
+    } else {
+        const statusClass = status === 'Passed' ? 'pass' : status === 'Failed' ? 'fail' : 'review';
+        const statusIcon = status === 'Passed' ? '✓' : status === 'Failed' ? '✕' : '⚠';
+        const statusTitle = status === 'Passed' ? 'REPORT VERIFIED — Approved' : status === 'Failed' ? 'REPORT VERIFIED — Declined' : 'REPORT VERIFIED — Review Required';
+        const statusDesc = 'This is an authentic OceanCheck compliance report.';
+
+        const badgeClass = aml === 'Approved' ? 'green' : aml === 'Declined' ? 'red' : 'amber';
+
+        let html = `
+            <div class="status ${statusClass}">
+                <div class="icon">${statusIcon}</div>
+                <div class="text">
+                    <h2>${statusTitle}</h2>
+                    <p>${statusDesc}</p>
+                </div>
+            </div>
+            <div class="details">
+                <div class="row"><span class="label">Report Reference</span><span class="value">${ref}</span></div>
+                ${name ? `<div class="row"><span class="label">Subject</span><span class="value">${decodeURIComponent(name)}</span></div>` : ''}
+                ${date ? `<div class="row"><span class="label">Verification Date</span><span class="value">${decodeURIComponent(date)}</span></div>` : ''}
+                ${doc ? `<div class="row"><span class="label">Document Type</span><span class="value">${decodeURIComponent(doc).replace(/_/g, ' ')}</span></div>` : ''}
+                ${docnum ? `<div class="row"><span class="label">Document Number</span><span class="value">${decodeURIComponent(docnum)}</span></div>` : ''}
+                ${status ? `<div class="row"><span class="label">Overall Status</span><span class="value">${status}</span></div>` : ''}
+                ${aml ? `<div class="row"><span class="label">AML Screening</span><span class="value"><span class="badge ${badgeClass}">${aml}</span></span></div>` : ''}
+                ${score ? `<div class="row"><span class="label">Risk Score</span><span class="value">${score}/100</span></div>` : ''}
+            </div>
+            <div class="hash">
+                <strong>Integrity Hash (SHA-256)</strong>
+                ${hash}
+            </div>
+        `;
+        content.innerHTML = html;
+    }
+</script>
+
+</body>
+</html>

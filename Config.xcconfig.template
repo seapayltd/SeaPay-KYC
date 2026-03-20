@@ -1,0 +1,5 @@
+// SeaPay KYC Configuration
+// Copy this file to Debug.xcconfig and Release.xcconfig
+// The API key can also be entered directly in the app's Settings screen.
+
+KYC_API_KEY = your_api_key_here

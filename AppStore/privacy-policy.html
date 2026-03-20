@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OceanCheck — Privacy Policy</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; color: #1a1a1a; line-height: 1.7; }
+        h1 { font-size: 24px; border-bottom: 2px solid #000; padding-bottom: 12px; }
+        h2 { font-size: 18px; margin-top: 32px; }
+        .meta { color: #666; font-size: 14px; margin-bottom: 32px; }
+        ul { padding-left: 24px; }
+        li { margin-bottom: 6px; }
+        .contact { background: #f5f5f5; padding: 16px; border-radius: 8px; margin-top: 32px; }
+    </style>
+</head>
+<body>
+
+<h1>OceanCheck — Privacy Policy</h1>
+<p class="meta">Effective date: March 2026 &nbsp;|&nbsp; Last updated: 20 March 2026</p>
+
+<p>This privacy policy describes how the OceanCheck mobile application ("App"), operated by Seapay Ltd. ("we", "us", "our"), collects, uses, and protects information when you use the App.</p>
+
+<h2>1. Data Controller</h2>
+<p><strong>Seapay Ltd.</strong><br>
+ICO Registration: ZB626725<br>
+Contact: <a href="https://seapay.me/contact/">https://seapay.me/contact/</a></p>
+
+<h2>2. Information We Collect</h2>
+<p>The App processes the following categories of data:</p>
+<ul>
+    <li><strong>Identity documents:</strong> Photos or scans of passports, ID cards, driver licenses, and residence permits uploaded by the agent for verification purposes.</li>
+    <li><strong>Personal information extracted from documents:</strong> Full name, date of birth, nationality, document number, expiry date, address, and gender — extracted automatically via optical character recognition (OCR).</li>
+    <li><strong>Proof of address documents:</strong> Utility bills, bank statements, or official letters uploaded for address verification.</li>
+    <li><strong>Agent information:</strong> The name entered during setup, used for audit trails and PDF reports.</li>
+    <li><strong>Location data:</strong> GPS coordinates captured at the time of verification, if permission is granted, for audit purposes.</li>
+    <li><strong>API key:</strong> Your verification service API key, stored securely in the iOS Keychain.</li>
+</ul>
+
+<h2>3. How Data Is Processed</h2>
+<ul>
+    <li>Document images are sent to third-party identity verification APIs for processing (OCR extraction, document authenticity checks, AML/sanctions screening).</li>
+    <li>Personal data extracted from documents is used to perform anti-money laundering (AML) screening against global sanctions, PEP, and adverse media databases.</li>
+    <li>Verification results and agent notes are stored locally on the device.</li>
+    <li>PDF reports are generated locally on the device and shared only when the agent explicitly chooses to export them.</li>
+</ul>
+
+<h2>4. Data Storage</h2>
+<ul>
+    <li><strong>On device:</strong> Verification records, captured images, agent notes, and PDF reports are stored in the app's sandboxed Documents directory on the iOS device. The API key is stored in the iOS Keychain with device-only access protection.</li>
+    <li><strong>No cloud storage:</strong> The App does not upload data to any cloud storage, analytics service, or backend server operated by Seapay Ltd.</li>
+    <li><strong>Third-party processing:</strong> Document images and extracted personal data are transmitted to the identity verification API provider for processing. This data is subject to the provider's data processing terms.</li>
+</ul>
+
+<h2>5. Data Retention</h2>
+<ul>
+    <li>All data stored on the device persists until the agent deletes individual checks or performs a full reset from the Settings screen.</li>
+    <li>Data transmitted to third-party verification APIs is retained according to the API provider's retention policies.</li>
+    <li>The App does not implement automatic data expiration. Agents are responsible for managing data retention in accordance with their organisation's policies.</li>
+</ul>
+
+<h2>6. Data Sharing</h2>
+<p>We do not sell, rent, or share personal data with third parties except:</p>
+<ul>
+    <li>With the identity verification API provider, as necessary to perform the verification services requested by the agent.</li>
+    <li>When the agent explicitly exports a PDF report and shares it via the iOS share sheet.</li>
+</ul>
+
+<h2>7. Your Rights</h2>
+<p>Under applicable data protection legislation (including UK GDPR), you have the right to:</p>
+<ul>
+    <li>Access the personal data we process</li>
+    <li>Request correction of inaccurate data</li>
+    <li>Request deletion of your data</li>
+    <li>Object to or restrict processing</li>
+    <li>Data portability</li>
+</ul>
+<p>Since all verification data is stored locally on the agent's device, data subject requests should be directed to the organisation operating the device. For requests relating to data transmitted to the verification API, contact the API provider directly.</p>
+
+<h2>8. Security</h2>
+<ul>
+    <li>API keys are stored in the iOS Keychain with <code>kSecAttrAccessibleWhenUnlockedThisDeviceOnly</code> protection.</li>
+    <li>All network communication uses HTTPS/TLS encryption.</li>
+    <li>Document images are stored in the app's sandboxed file system, inaccessible to other apps.</li>
+    <li>No analytics, crash reporting, or tracking SDKs are included in the App.</li>
+</ul>
+
+<h2>9. Children's Privacy</h2>
+<p>The App is not intended for use by individuals under the age of 18. We do not knowingly collect personal data from children.</p>
+
+<h2>10. Changes to This Policy</h2>
+<p>We may update this privacy policy from time to time. Changes will be reflected in the "Last updated" date above. Continued use of the App after changes constitutes acceptance of the revised policy.</p>
+
+<div class="contact">
+    <h2 style="margin-top: 0;">Contact</h2>
+    <p>For privacy-related inquiries:<br>
+    <strong>Seapay Ltd.</strong><br>
+    Website: <a href="https://seapay.me">https://seapay.me</a><br>
+    Contact: <a href="https://seapay.me/contact/">https://seapay.me/contact/</a><br>
+    ICO Registration: ZB626725</p>
+</div>
+
+</body>
+</html>

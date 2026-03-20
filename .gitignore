@@ -1,0 +1,36 @@
+# Xcode
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+DerivedData/
+build/
+*.pbxuser
+*.perspectivev3
+*.mode1v3
+*.mode2v3
+xcuserdata/
+
+# Secret configuration files (use Config.xcconfig.template as reference)
+Debug.xcconfig
+Release.xcconfig
+*.xcconfig
+!Config.xcconfig.template
+
+# CocoaPods (not used)
+Pods/
+Podfile.lock
+
+# Swift Package Manager
+.build/
+Package.resolved
+
+# macOS
+.DS_Store
+*.swp
+*~.nib
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+fastlane/test_output

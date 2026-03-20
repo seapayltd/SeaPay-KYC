@@ -94,6 +94,8 @@
 			);
 			mainGroup = FA28F55A2F6611D30024C169;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = FA28F5642F6611D30024C169 /* Products */;
 			projectDirPath = "";
@@ -256,6 +258,12 @@
 				DEVELOPMENT_TEAM = U9KX7AA93P;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = OceanCheck;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSCameraUsageDescription = "OceanCheck needs camera access to scan identity documents and proof of address.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "OceanCheck records your location when performing verifications for audit purposes.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "OceanCheck needs photo library access to upload identity documents.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -288,6 +296,12 @@
 				DEVELOPMENT_TEAM = U9KX7AA93P;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = OceanCheck;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSCameraUsageDescription = "OceanCheck needs camera access to scan identity documents and proof of address.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "OceanCheck records your location when performing verifications for audit purposes.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "OceanCheck needs photo library access to upload identity documents.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
