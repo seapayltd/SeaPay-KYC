@@ -10,6 +10,7 @@ struct SetupView: View {
     var isSheet = false
     var onComplete: (() -> Void)?
     var onReset: (() -> Void)?
+    var onSwitchMode: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
 
     @State private var apiKey = ""
@@ -142,13 +143,34 @@ struct SetupView: View {
                         .shadow(color: .black.opacity(0.08), radius: 20, y: 8)
                         .padding(.horizontal, 20)
 
-                        // ── Reset ──
                         if isSheet {
-                            Button(role: .destructive) { showReset = true } label: {
-                                Label("Reset All Data", systemImage: "trash")
-                                    .font(.caption).foregroundStyle(Color.fail.opacity(0.6))
+                            VStack(spacing: 12) {
+                                Divider()
+
+                                // Switch mode
+                                Button {
+                                    dismiss()
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { onSwitchMode?() }
+                                } label: {
+                                    Label("Switch to Self-Verification Mode", systemImage: "arrow.left.arrow.right")
+                                        .font(.caption).foregroundStyle(Color.brand)
+                                }
+
+                                // Reset
+                                Button(role: .destructive) { showReset = true } label: {
+                                    Label("Reset All Data", systemImage: "trash")
+                                        .font(.caption).foregroundStyle(Color.fail.opacity(0.6))
+                                }
                             }
-                            .padding(.top, 24)
+                            .padding(.top, 16)
+                        } else {
+                            // First-run: link to go back to mode selection
+                            Button {
+                                onSwitchMode?()
+                            } label: {
+                                Text("Not an agent? Go back").font(.caption).foregroundStyle(.secondary)
+                            }
+                            .padding(.top, 12)
                         }
 
                         Spacer(minLength: 50)

@@ -2,7 +2,7 @@
 //  ModeSelectionView.swift
 //  OceanCheck
 //
-//  First launch: choose Agent or Subject mode.
+//  Launch pad: choose Agent or Subject. Not a permanent choice — easily switchable.
 //
 
 import SwiftUI
@@ -17,7 +17,7 @@ struct ModeSelectionView: View {
             VStack(spacing: 0) {
                 Spacer()
 
-                // Logo + brand
+                // Logo
                 VStack(spacing: 16) {
                     Image("AppIcon")
                         .resizable().scaledToFit()
@@ -26,84 +26,71 @@ struct ModeSelectionView: View {
                         .shadow(color: .black.opacity(0.15), radius: 16, y: 6)
 
                     Text("OceanCheck").font(BrandFont.brand(30))
-
                     Text("Maritime Identity Verification")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
 
-                Spacer().frame(height: 48)
+                Spacer().frame(height: 44)
 
-                // Mode cards
+                // Cards
                 VStack(spacing: 14) {
-                    Text("How will you use this app?")
+                    Text("What would you like to do?")
                         .font(.headline).frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 4)
 
-                    // Agent card
-                    Button {
-                        withAnimation { appState.setMode(.agent) }
-                    } label: {
-                        HStack(spacing: 16) {
-                            Image(systemName: "shield.checkered")
-                                .font(.title2).foregroundStyle(.white)
-                                .frame(width: 52, height: 52)
-                                .background(Color.brand.gradient)
-                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    modeCard(
+                        icon: "shield.checkered",
+                        iconBg: Color.brand,
+                        title: "Verify Someone",
+                        subtitle: "Scan documents, run KYC & AML checks, generate compliance reports.",
+                        action: { withAnimation { appState.setMode(.agent) } }
+                    )
 
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("I'm an Agent").font(.subheadline.weight(.semibold))
-                                Text("Verify crew members, scan documents, run compliance checks, generate reports.")
-                                    .font(.caption).foregroundStyle(.secondary)
-                                    .lineLimit(2)
-                            }
-
-                            Spacer()
-                            Image(systemName: "chevron.right").foregroundStyle(.secondary)
-                        }
-                        .padding(16)
-                        .background(Color.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                        .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
-                    }
-                    .buttonStyle(.plain)
-
-                    // Subject card
-                    Button {
-                        withAnimation { appState.setMode(.subject) }
-                    } label: {
-                        HStack(spacing: 16) {
-                            Image(systemName: "person.crop.rectangle")
-                                .font(.title2).foregroundStyle(.white)
-                                .frame(width: 52, height: 52)
-                                .background(Color.pass.gradient)
-                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("I was invited").font(.subheadline.weight(.semibold))
-                                Text("Scan a QR code from an agent to verify your identity securely.")
-                                    .font(.caption).foregroundStyle(.secondary)
-                                    .lineLimit(2)
-                            }
-
-                            Spacer()
-                            Image(systemName: "chevron.right").foregroundStyle(.secondary)
-                        }
-                        .padding(16)
-                        .background(Color.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                        .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
-                    }
-                    .buttonStyle(.plain)
+                    modeCard(
+                        icon: "person.crop.rectangle",
+                        iconBg: Color.pass,
+                        title: "Verify Myself",
+                        subtitle: "I was invited by an agent. Scan a QR code to begin self-verification.",
+                        action: { withAnimation { appState.setMode(.subject) } }
+                    )
                 }
                 .padding(.horizontal, 24)
 
                 Spacer()
 
-                // Footer
+                Text("You can switch anytime from Settings")
+                    .font(.caption2).foregroundStyle(.quaternary)
+                    .padding(.bottom, 8)
+
                 Text("seapay.me  \u{2022}  v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")")
                     .font(.caption2).foregroundStyle(.quaternary)
                     .padding(.bottom, 24)
             }
         }
+    }
+
+    private func modeCard(icon: String, iconBg: Color, title: String, subtitle: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 16) {
+                Image(systemName: icon)
+                    .font(.title2).foregroundStyle(.white)
+                    .frame(width: 52, height: 52)
+                    .background(iconBg.gradient)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title).font(.subheadline.weight(.semibold))
+                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+
+                Spacer()
+                Image(systemName: "chevron.right").foregroundStyle(.secondary)
+            }
+            .padding(16)
+            .background(Color.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
+        }
+        .buttonStyle(.plain)
     }
 }

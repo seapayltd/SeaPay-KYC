@@ -109,7 +109,7 @@ struct HomeView: View {
             }
             .sheet(item: $activeCheck) { VerificationSheet(vm: vm, check: $0) }
             .sheet(item: $inviteCheck) { InviteWaitingSheet(vm: vm, check: $0) }
-            .sheet(isPresented: $showSettings) { SetupView(vm: vm, isSheet: true, onReset: { appState.didReset() }) }
+            .sheet(isPresented: $showSettings) { SetupView(vm: vm, isSheet: true, onReset: { appState.didReset() }, onSwitchMode: { appState.setMode(.none) }) }
             .onAppear {
                 if netMonitor == nil {
                     let m = NWPathMonitor()

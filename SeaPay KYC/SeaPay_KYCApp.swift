@@ -68,7 +68,7 @@ struct SeaPay_KYCApp: App {
                         HomeView(vm: vm, appState: appState)
                             .transition(.opacity.combined(with: .move(edge: .trailing)))
                     } else {
-                        SetupView(vm: vm, onComplete: { appState.didConfigure() })
+                        SetupView(vm: vm, onComplete: { appState.didConfigure() }, onSwitchMode: { appState.setMode(.none) })
                             .transition(.opacity.combined(with: .move(edge: .leading)))
                     }
 
