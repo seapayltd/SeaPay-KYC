@@ -15,6 +15,7 @@ struct InviteSheet: View {
 
     @State private var sessionId = ""
     @State private var code = ""
+    @State private var verifyURL = "" // hosted verification URL from API
     @State private var error: String?
     @State private var creating = true
     @State private var completed = false
@@ -33,7 +34,13 @@ struct InviteSheet: View {
     }
 
     private var message: String {
-        "Hi \(check.customerName), please verify your identity:\n\n1. Download OceanCheck:\n\(appStoreURL)\n\n2. Open → \"Verify Myself\" → code:\n\(code)\n\nTakes 2 minutes.\n— \(agent), SeaPay\u{00AE}"
+        var msg = "Hi \(check.customerName), please verify your identity:\n\n"
+        if !verifyURL.isEmpty {
+            msg += "Open this link to start:\n\(verifyURL)\n\n"
+        }
+        msg += "Or download OceanCheck and enter code \(code):\n\(appStoreURL)\n\n"
+        msg += "Takes 2 minutes.\n— \(agent), SeaPay\u{00AE}"
+        return msg
     }
 
     var body: some View {
@@ -112,6 +119,7 @@ struct InviteSheet: View {
         do {
             let r = try await vm.createInviteSession(checkId: check.id)
             sessionId = r.sessionId
+            verifyURL = r.verifyURL
             code = "OC-" + String(r.sessionId.replacingOccurrences(of: "-", with: "").prefix(6)).uppercased()
             creating = false; startPoll()
         } catch { self.error = error.localizedDescription; creating = false }
