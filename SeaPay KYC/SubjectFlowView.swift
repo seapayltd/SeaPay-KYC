@@ -150,22 +150,23 @@ struct SubjectFlowView: View {
     }
 
     private func parseQR(_ value: String) {
-        // QR can be: deep link (oceancheck://verify?session=...) or hosted URL
-        if let url = URL(string: value) {
-            if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-               let session = components.queryItems?.first(where: { $0.name == "session" })?.value {
-                code = session
-            } else if value.contains("verify") || value.contains("session") {
-                // Direct hosted URL
-                sessionURL = url
-                showVerification = true
-                return
-            }
+        // If it's an HTTP URL → open directly in Safari (this is the hosted verification link)
+        if value.lowercased().hasPrefix("http"), let url = URL(string: value) {
+            sessionURL = url
+            showVerification = true
+            return
         }
-        if !value.isEmpty && code.isEmpty {
+        // If it's a deep link → extract session parameter
+        if value.lowercased().hasPrefix("oceancheck://"), let url = URL(string: value),
+           let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           let session = components.queryItems?.first(where: { $0.name == "session" })?.value {
+            code = session
+            openVerification()
+            return
+        }
+        // Otherwise treat as a code
+        if !value.isEmpty {
             code = value
-        }
-        if !code.isEmpty {
             openVerification()
         }
     }

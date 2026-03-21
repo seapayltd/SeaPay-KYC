@@ -2,7 +2,7 @@
 //  InviteSheet.swift
 //  OceanCheck
 //
-//  Two states: (1) code + send, (2) waiting. Minimal, calm.
+//  Agent invite: code + QR + share. QR encodes the hosted verification URL.
 //
 
 import SwiftUI
@@ -15,7 +15,7 @@ struct InviteSheet: View {
 
     @State private var sessionId = ""
     @State private var code = ""
-    @State private var verifyURL = "" // hosted verification URL from API
+    @State private var hostedURL = ""
     @State private var error: String?
     @State private var creating = true
     @State private var completed = false
@@ -35,9 +35,7 @@ struct InviteSheet: View {
 
     private var message: String {
         var msg = "Hi \(check.customerName), please verify your identity:\n\n"
-        if !verifyURL.isEmpty {
-            msg += "Open this link to start:\n\(verifyURL)\n\n"
-        }
+        if !hostedURL.isEmpty { msg += "Open this link:\n\(hostedURL)\n\n" }
         msg += "Or download OceanCheck and enter code \(code):\n\(appStoreURL)\n\n"
         msg += "Takes 2 minutes.\n— \(agent), SeaPay\u{00AE}"
         return msg
@@ -47,7 +45,7 @@ struct InviteSheet: View {
         NavigationStack {
             Group {
                 if creating { VStack { Spacer(); ProgressView(); Spacer() } }
-                else if let error { VStack { Spacer(); Text(error).font(Typo.meta).foregroundStyle(.secondary).padding(32); Button("Retry") { Task { await create() } }.buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 48); Spacer() } }
+                else if let error { VStack { Spacer(); Text(error).font(Typo.meta).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(32); Button("Retry") { Task { await create() } }.buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 48); Spacer() } }
                 else if completed { doneView }
                 else { mainView }
             }
@@ -59,42 +57,49 @@ struct InviteSheet: View {
         }
     }
 
-    // State 1: code + send
     private var mainView: some View {
         VStack(spacing: 0) {
             Spacer()
 
             if !sent {
-                // Large code
-                VStack(spacing: 12) {
-                    Text(code)
-                        .font(.system(size: 40, weight: .bold, design: .monospaced))
-                        .tracking(6)
-                        .onTapGesture { UIPasteboard.general.string = code; withAnimation { codeCopied = true }; DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { withAnimation { codeCopied = false } } }
+                VStack(spacing: 24) {
+                    // QR — primary in-person path, encodes hosted URL
+                    if !hostedURL.isEmpty, let qr = generateQR(hostedURL) {
+                        VStack(spacing: 8) {
+                            Image(uiImage: qr)
+                                .interpolation(.none)
+                                .resizable().scaledToFit()
+                                .frame(width: 180, height: 180)
+                                .background(Color.white)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
 
-                    Text(codeCopied ? "Copied" : "Tap to copy").font(Typo.meta).foregroundStyle(.secondary)
-                }
-
-                Spacer().frame(height: 32)
-
-                Button { showShare = true } label: { Text("Send Invite") }
-                    .buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 48)
-                    .sheet(isPresented: $showShare) {
-                        ActivityView(items: [message])
-                            .onDisappear { withAnimation(.smooth) { sent = true } }
+                            Text("Show this to \(check.customerName)").font(Typo.meta).foregroundStyle(.secondary)
+                        }
                     }
+
+                    // Code
+                    VStack(spacing: 6) {
+                        Text(code)
+                            .font(.system(size: 32, weight: .bold, design: .monospaced))
+                            .tracking(4)
+                            .onTapGesture { UIPasteboard.general.string = code; withAnimation { codeCopied = true }; DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { withAnimation { codeCopied = false } } }
+                        Text(codeCopied ? "Copied" : "Tap to copy code").font(Typo.meta).foregroundStyle(.secondary)
+                    }
+
+                    // Send (for remote)
+                    Button { showShare = true } label: { Text("Send Invite") }
+                        .buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 48)
+                        .sheet(isPresented: $showShare) {
+                            ActivityView(items: [message])
+                                .onDisappear { withAnimation(.smooth) { sent = true } }
+                        }
+                }
             } else {
-                // State 2: waiting — calm
+                // Waiting state
                 VStack(spacing: 16) {
-                    Text(code).font(.system(size: 20, weight: .bold, design: .monospaced)).foregroundStyle(.secondary)
-
-                    Circle()
-                        .fill(Color.primary.opacity(0.06))
-                        .frame(width: 64, height: 64)
-                        .overlay { ProgressView() }
-
-                    Text("Waiting for \(check.customerName)...")
-                        .font(Typo.body).foregroundStyle(.secondary)
+                    Text(code).font(.system(size: 18, weight: .bold, design: .monospaced)).foregroundStyle(.secondary)
+                    Circle().fill(Color.primary.opacity(0.06)).frame(width: 64, height: 64).overlay { ProgressView() }
+                    Text("Waiting for \(check.customerName)...").font(Typo.body).foregroundStyle(.secondary)
                 }
             }
 
@@ -114,12 +119,14 @@ struct InviteSheet: View {
         }
     }
 
+    // MARK: - Session + Polling
+
     private func create() async {
         creating = true; error = nil
         do {
             let r = try await vm.createInviteSession(checkId: check.id)
             sessionId = r.sessionId
-            verifyURL = r.verifyURL
+            hostedURL = r.verifyURL
             code = "OC-" + String(r.sessionId.replacingOccurrences(of: "-", with: "").prefix(6)).uppercased()
             creating = false; startPoll()
         } catch { self.error = error.localizedDescription; creating = false }
@@ -135,5 +142,22 @@ struct InviteSheet: View {
             status = d.status
             if d.status == "Approved" || d.status == "Declined" { stop(); withAnimation { completed = true } }
         } catch {}
+    }
+
+    // MARK: - QR
+
+    private func generateQR(_ string: String) -> UIImage? {
+        guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
+        filter.setValue(string.data(using: .utf8), forKey: "inputMessage")
+        filter.setValue("M", forKey: "inputCorrectionLevel")
+        guard let ci = filter.outputImage else { return nil }
+        let ctx = CIContext(); guard let cg = ctx.createCGImage(ci, from: ci.extent) else { return nil }
+        let s: CGFloat = 512
+        UIGraphicsBeginImageContextWithOptions(CGSize(width: s, height: s), true, 1)
+        guard let g = UIGraphicsGetCurrentContext() else { return nil }
+        g.interpolationQuality = .none; g.scaleBy(x: 1, y: -1); g.translateBy(x: 0, y: -s)
+        g.draw(cg, in: CGRect(x: 0, y: 0, width: s, height: s))
+        let img = UIGraphicsGetImageFromCurrentImageContext(); UIGraphicsEndImageContext()
+        return img
     }
 }
