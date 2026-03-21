@@ -72,27 +72,31 @@ class KYCViewModel: ObservableObject {
 
     // MARK: - Invite Flow (session-based)
 
-    func createInviteSession(checkId: String) async throws -> (sessionId: String, qrURL: String, verifyURL: String) {
+    struct InviteResult {
+        let sessionId: String
+        let sessionToken: String
+        let code: String
+        let verifyURL: String
+    }
+
+    func createInviteSession(checkId: String) async throws -> InviteResult {
         guard let i = idx(checkId) else { throw AppError.verificationFailed("Check not found") }
         let wf = AppConfiguration.workflowID
         guard !wf.isEmpty else { throw AppError.missingRequiredField("Workflow ID — configure it in Settings") }
 
-        let agent = UserDefaults.standard.string(forKey: "agentName") ?? "Agent"
-        let ref = "OC-\(String(checks[i].id.prefix(8)).uppercased())"
-
         let session = try await api.createSession(workflowID: wf, vendorData: checks[i].customerName)
-        let sessionId = session.sessionId
 
         checks[i].status = .inProgress
         save()
 
-        // Build the deep link for QR
-        let qrURL = "\(AppConfiguration.urlScheme)://verify?session=\(sessionId)&agent=\(agent.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")&ref=\(ref)"
+        let code = "OC-" + String(session.sessionId.replacingOccurrences(of: "-", with: "").prefix(6)).uppercased()
 
-        // The hosted verification URL (fallback for non-app users)
-        let verifyURL = session.url ?? ""
-
-        return (sessionId, qrURL, verifyURL)
+        return InviteResult(
+            sessionId: session.sessionId,
+            sessionToken: session.sessionToken ?? "",
+            code: code,
+            verifyURL: session.url ?? ""
+        )
     }
 
     func pollSessionDecision(checkId: String, sessionId: String) async throws -> SessionDecision {

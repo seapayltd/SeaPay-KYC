@@ -14,6 +14,7 @@ struct InviteSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var sessionId = ""
+    @State private var sessionToken = ""
     @State private var code = ""
     @State private var hostedURL = ""
     @State private var error: String?
@@ -63,8 +64,9 @@ struct InviteSheet: View {
 
             if !sent {
                 VStack(spacing: 24) {
-                    // QR — primary in-person path, encodes hosted URL
-                    if !hostedURL.isEmpty, let qr = generateQR(hostedURL) {
+                    // QR — encodes deep link with session token for native in-app verification
+                    let qrData = "\(AppConfiguration.urlScheme)://verify?session=\(sessionId)&token=\(sessionToken)&agent=\(agent.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
+                    if let qr = generateQR(qrData) {
                         VStack(spacing: 8) {
                             Image(uiImage: qr)
                                 .interpolation(.none)
@@ -126,8 +128,9 @@ struct InviteSheet: View {
         do {
             let r = try await vm.createInviteSession(checkId: check.id)
             sessionId = r.sessionId
+            sessionToken = r.sessionToken
             hostedURL = r.verifyURL
-            code = "OC-" + String(r.sessionId.replacingOccurrences(of: "-", with: "").prefix(6)).uppercased()
+            code = r.code
             creating = false; startPoll()
         } catch { self.error = error.localizedDescription; creating = false }
     }
