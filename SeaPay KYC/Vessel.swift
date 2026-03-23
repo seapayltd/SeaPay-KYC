@@ -55,6 +55,7 @@ struct Vessel: Identifiable, Codable, Hashable {
     var ownerCheckId: String?
     var managementCompanyCheckId: String?
     var ownershipStructure: OwnershipStructure?
+    var historicalOwnership: [HistoricalOwnership]?
     let createdAt: Date
 
     init(id: String = UUID().uuidString, name: String, imoNumber: String = "", flagState: String = "", portOfRegistry: String = "", vesselType: VesselType? = nil, createdAt: Date = Date()) {
@@ -113,4 +114,13 @@ struct Director: Codable, Hashable, Identifiable {
     init(id: String = UUID().uuidString, name: String = "") {
         self.id = id; self.name = name
     }
+}
+
+// MARK: - Historical Ownership (for vessel sale/transfer records)
+
+struct HistoricalOwnership: Codable, Hashable {
+    var structure: OwnershipStructure
+    var transferDate: Date
+    var scenario: String
+    var previousOwner: String
 }

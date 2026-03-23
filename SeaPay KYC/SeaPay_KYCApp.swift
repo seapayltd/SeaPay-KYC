@@ -55,6 +55,11 @@ struct SeaPay_KYCApp: App {
                 SubjectFlowView(appState: appState)
             }
             .onOpenURL { url in
+                // Handle .oceancheck transfer packages
+                if url.pathExtension == "oceancheck" {
+                    _ = vm.importTransferPackage(from: url)
+                    return
+                }
                 if url.scheme == AppConfiguration.urlScheme {
                     appState.incomingDeepLink = url
                     appState.showSubjectFlow = true

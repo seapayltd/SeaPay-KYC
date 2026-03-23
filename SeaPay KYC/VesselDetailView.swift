@@ -29,6 +29,7 @@ struct VesselDetailView: View {
     @State private var showEditVessel = false
     @State private var showDeleteConfirm = false
     @State private var showExportCrewList = false
+    @State private var showShareVesselData = false
 
     private var v: Vessel { vm.vessels.first(where: { $0.id == vessel.id }) ?? vessel }
     private var crew: [KYCCheck] { vm.checksForVessel(vessel.id) }
@@ -180,12 +181,8 @@ struct VesselDetailView: View {
                 Menu {
                     Button { showEditVessel = true } label: { Label("Edit Vessel", systemImage: "pencil") }
 
-                    if !crew.isEmpty {
-                        Divider()
-                        Button { showExportPDF = true } label: { Label("Compliance Packet", systemImage: "doc.text") }
-                        Button { showExportCSV = true } label: { Label("Document Status", systemImage: "tablecells") }
-                        Button { showExportCrewList = true } label: { Label("Crew List (FAL 5)", systemImage: "list.bullet.rectangle") }
-                    }
+                    Divider()
+                    Button { showShareVesselData = true } label: { Label("Share Vessel Data", systemImage: "square.and.arrow.up") }
 
                     Divider()
                     Button(role: .destructive) { showDeleteConfirm = true } label: { Label("Delete Vessel", systemImage: "trash") }
@@ -219,6 +216,7 @@ struct VesselDetailView: View {
         .navigationDestination(isPresented: $showExportCrewList) { CrewListPreview(vm: vm, vessel: vessel) }
         .sheet(isPresented: $showEditVessel) { EditVesselSheet(vm: vm, vessel: v) }
         .sheet(isPresented: $showOwnershipFlow) { OwnershipFlowView(vm: vm, vesselId: vessel.id) }
+        .sheet(isPresented: $showShareVesselData) { ShareVesselSheet(vm: vm, vessel: v) }
         .alert("Edit Name", isPresented: .constant(editingPerson != nil)) {
             TextField("Name", text: $editName)
             Button("Cancel", role: .cancel) { editingPerson = nil }

@@ -320,6 +320,163 @@ class KYCViewModel: ObservableObject {
         return data
     }
 
+    // MARK: - Scenario-Based Sharing
+
+    func generateShareExport(vesselId: String, scenario: VesselShareScenario) -> URL? {
+        guard let vessel = vessels.first(where: { $0.id == vesselId }) else { return nil }
+        let allChecks = checksForVessel(vesselId)
+        let scope = scenario.scope
+
+        let data: Data
+        switch scenario {
+        case .portRequest:
+            data = ReportGenerator.generateAuthorityPacket(vessel: vessel, checks: allChecks, title: "PORT AUTHORITY DOCUMENTATION")
+        case .classSociety:
+            data = ReportGenerator.generateCertificateSummary(vessel: vessel)
+        case .flagStateRequest:
+            data = ReportGenerator.generateAuthorityPacket(vessel: vessel, checks: allChecks, title: "FLAG STATE COMPLIANCE REPORT", includeAML: scope.aml)
+        case .insuranceRequest:
+            data = ReportGenerator.generateAuthorityPacket(vessel: vessel, checks: allChecks, title: "P&I COMPLIANCE EVIDENCE", includeAML: true, includeUBO: true)
+        case .charterDueDiligence:
+            data = ReportGenerator.generateSanitizedCrewSummary(vessel: vessel, checks: allChecks)
+        default:
+            return nil
+        }
+
+        let safeName = vessel.name.replacingOccurrences(of: " ", with: "_")
+        let scenarioTag = scenario.rawValue.replacingOccurrences(of: " ", with: "_").replacingOccurrences(of: "/", with: "")
+        let name = "\(safeName)_\(scenarioTag)_\(Date().formatted(.iso8601.year().month().day())).pdf"
+        let url = reportsDir.appendingPathComponent(name)
+        try? data.write(to: url)
+        return url
+    }
+
+    func generateTransferPackage(vesselId: String, scenario: VesselShareScenario) -> URL? {
+        guard let vessel = vessels.first(where: { $0.id == vesselId }) else { return nil }
+        let allChecks = checksForVessel(vesselId)
+        let scope = scenario.scope
+        let fm = FileManager.default
+
+        // Create temp directory
+        let tempDir = fm.temporaryDirectory.appendingPathComponent("OceanCheck_Transfer_\(UUID().uuidString.prefix(8))")
+        try? fm.removeItem(at: tempDir)
+        try? fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601; encoder.outputFormatting = .prettyPrinted
+
+        // Manifest
+        let manifest: [String: Any] = [
+            "formatVersion": "1.0",
+            "scenario": scenario.rawValue,
+            "generatedAt": ISO8601DateFormatter().string(from: Date()),
+            "generatedBy": UserDefaults.standard.string(forKey: "agentName") ?? "Agent",
+            "appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "2.0",
+            "vesselName": vessel.name,
+            "imoNumber": vessel.imoNumber,
+            "checksCount": allChecks.count
+        ]
+        try? JSONSerialization.data(withJSONObject: manifest, options: .prettyPrinted).write(to: tempDir.appendingPathComponent("manifest.json"))
+
+        // Vessel
+        try? encoder.encode(vessel).write(to: tempDir.appendingPathComponent("vessel.json"))
+
+        // Checks (filtered by scope)
+        var filteredChecks = allChecks
+        if !scope.shoreBased { filteredChecks = filteredChecks.filter { $0.entityType.category != .shoreBased } }
+        if !scope.crewRecords { filteredChecks = filteredChecks.filter { $0.entityType.category != .crew } }
+        if !scope.ownership { filteredChecks = filteredChecks.filter { $0.entityType.category != .ownership } }
+        try? encoder.encode(filteredChecks).write(to: tempDir.appendingPathComponent("checks.json"))
+
+        // Images
+        if scope.images {
+            let imgDir = tempDir.appendingPathComponent("images")
+            try? fm.createDirectory(at: imgDir, withIntermediateDirectories: true)
+            for check in filteredChecks {
+                for path in check.documentImagePaths ?? [] {
+                    try? fm.copyItem(at: imagesDir.appendingPathComponent(path), to: imgDir.appendingPathComponent(path))
+                }
+                for doc in check.documents ?? [] {
+                    for path in doc.imagePaths {
+                        try? fm.copyItem(at: imagesDir.appendingPathComponent(path), to: imgDir.appendingPathComponent(path))
+                    }
+                }
+            }
+        }
+
+        // ZIP
+        let safeName = vessel.name.replacingOccurrences(of: " ", with: "_")
+        let zipURL = fm.temporaryDirectory.appendingPathComponent("VesselTransfer_\(safeName).oceancheck")
+        try? fm.removeItem(at: zipURL)
+        var error: NSError?
+        var success = false
+        NSFileCoordinator().coordinate(readingItemAt: tempDir, options: .forUploading, error: &error) { tempZipURL in
+            try? fm.copyItem(at: tempZipURL, to: zipURL)
+            success = true
+        }
+        try? fm.removeItem(at: tempDir)
+
+        return success && fm.fileExists(atPath: zipURL.path) ? zipURL : nil
+    }
+
+    func importTransferPackage(from url: URL) -> Bool {
+        guard url.startAccessingSecurityScopedResource() else { return false }
+        defer { url.stopAccessingSecurityScopedResource() }
+
+        let fm = FileManager.default
+        let tempDir = docsDir.appendingPathComponent("_transfer_import")
+        try? fm.removeItem(at: tempDir)
+        try? fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        try? fm.copyItem(at: url, to: tempDir.appendingPathComponent(url.lastPathComponent))
+
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+
+        // Find vessel.json
+        guard let vesselFile = findFile("vessel.json", in: tempDir),
+              let vesselData = try? Data(contentsOf: vesselFile),
+              let importedVessel = try? decoder.decode(Vessel.self, from: vesselData) else {
+            try? fm.removeItem(at: tempDir); return false
+        }
+
+        // Check if vessel already exists by IMO
+        if let existingIdx = vessels.firstIndex(where: { $0.imoNumber == importedVessel.imoNumber && !$0.imoNumber.isEmpty }) {
+            // Update existing vessel
+            var v = vessels[existingIdx]
+            if let oldOS = v.ownershipStructure {
+                var history = v.historicalOwnership ?? []
+                history.append(HistoricalOwnership(structure: oldOS, transferDate: Date(), scenario: "import", previousOwner: v.registeredOwner))
+                v.historicalOwnership = history
+            }
+            v.documents = importedVessel.documents
+            v.ownershipStructure = importedVessel.ownershipStructure
+            vessels[existingIdx] = v
+        } else {
+            vessels.insert(importedVessel, at: 0)
+        }
+
+        // Import checks
+        if let checksFile = findFile("checks.json", in: tempDir),
+           let checksData = try? Data(contentsOf: checksFile),
+           let importedChecks = try? decoder.decode([KYCCheck].self, from: checksData) {
+            for var check in importedChecks {
+                check.vesselId = importedVessel.id
+                if !checks.contains(where: { $0.id == check.id }) { checks.append(check) }
+            }
+        }
+
+        // Import images
+        if let imgDir = findDirectory("images", in: tempDir),
+           let files = try? fm.contentsOfDirectory(atPath: imgDir.path) {
+            for f in files {
+                let dest = imagesDir.appendingPathComponent(f)
+                if !fm.fileExists(atPath: dest.path) { try? fm.copyItem(at: imgDir.appendingPathComponent(f), to: dest) }
+            }
+        }
+
+        try? fm.removeItem(at: tempDir)
+        save(); saveVessels()
+        return true
+    }
+
     // MARK: - Backup Export / Import
 
     func exportBackup() -> URL? {
