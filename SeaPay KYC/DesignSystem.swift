@@ -74,6 +74,7 @@ extension Color {
 enum Typo {
     static let hero: Font = .system(size: 32, weight: .bold)
     static let context: Font = .system(size: 16, weight: .semibold)
+    static let stat: Font = .system(size: 18, weight: .bold, design: .rounded)
     static let body: Font = .system(size: 13, weight: .medium)
     static let meta: Font = .system(size: 11)
 }
@@ -135,19 +136,22 @@ struct SectionHeader: View {
     }
 }
 
-// MARK: - Status Badge (minimal)
+// MARK: - Status Badge (dot + label for scannability)
 
 struct StatusBadge: View {
     let status: KYCCheck.CheckStatus
     var body: some View {
-        Text(shortLabel)
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(color)
+        HStack(spacing: 5) {
+            Circle().fill(color).frame(width: 6, height: 6)
+            Text(shortLabel)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(color)
+        }
     }
     private var color: Color {
         switch status {
         case .passed: .clear_; case .failed: .flagged; case .requiresReview: .review
-        case .pending: .secondary; case .inProgress: .secondary; case .incomplete: .secondary
+        case .pending: Color.secondary.opacity(0.5); case .inProgress: Color.secondary.opacity(0.6); case .incomplete: Color.secondary.opacity(0.4)
         }
     }
     private var shortLabel: String {

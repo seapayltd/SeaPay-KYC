@@ -18,7 +18,8 @@ struct VerificationSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     private var c: KYCCheck { vm.checks.first(where: { $0.id == check.id }) ?? check }
-    private var hasResults: Bool { c.rawIDResponse != nil }
+    private var hasResults: Bool { c.rawIDResponse != nil || c.completedAt != nil }
+    private var isWaitingForInvite: Bool { c.sessionId != nil && c.completedAt == nil && c.status == .inProgress }
 
     // Config
     @State private var step: ConfigStep = .docType
@@ -48,28 +49,20 @@ struct VerificationSheet: View {
     @State private var reviewReason = ""; @State private var showReviewSheet = false; @State private var pendingReview: KYCCheck.ReviewDecision?
     @State private var notes = ""
 
-    // PDF
-    @State private var pdfURL: URL?; @State private var showPDF = false; @State private var showShare = false
 
     var body: some View {
         NavigationStack {
             Group {
                 if hasResults { resultsView }
+                else if isWaitingForInvite { inviteWaitingView }
                 else if busy { processingView }
                 else { configView }
             }
             .background(Color.surface.ignoresSafeArea())
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .principal) { Text(c.customerName).font(Typo.body) }
+                ToolbarItem(placement: .principal) { Text(c.displayName).font(Typo.body) }
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { saveNotes(); dismiss() } }
-                if hasResults {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button { pdfURL = vm.generateReport(checkId: c.id); if pdfURL != nil { showPDF = true } } label: {
-                            Image(systemName: "square.and.arrow.up").font(.body)
-                        }
-                    }
-                }
             }
             .onAppear { notes = c.agentNotes ?? ""; if let d = c.expectedDocType { docType = d }; if let d = c.investigationDepth { depth = d }; if hasResults { loadResults() } }
             .fullScreenCover(isPresented: $showFrontCam) { CameraCapture(result: $frontImage).ignoresSafeArea() }
@@ -78,8 +71,6 @@ struct VerificationSheet: View {
             .sheet(isPresented: $showFrontFile) { FilePicker { url in frontImage = loadFile(url, forAPI: true) } }
             .sheet(isPresented: $showBackFile) { FilePicker { url in backImage = loadFile(url, forAPI: true) } }
             .sheet(isPresented: $showPoAFile) { FilePicker { url in poaImage = loadFile(url, forAPI: false) } }
-            .sheet(isPresented: $showPDF) { if let url = pdfURL { PDFPreviewSheet(url: url, onShare: { showShare = true }) } }
-            .sheet(isPresented: $showShare) { if let url = pdfURL { ActivityView(items: [url]) } }
             .alert("Re-run Screening", isPresented: $showAMLRerun) {
                 TextField("Full name", text: $editedName)
                 Button("Screen") { Task { await rerunAML() } }; Button("Cancel", role: .cancel) {}
@@ -93,6 +84,34 @@ struct VerificationSheet: View {
     }
 
     private func saveNotes() { if !notes.isEmpty && notes != (c.agentNotes ?? "") { vm.updateAgentNotes(checkId: c.id, notes: notes) } }
+
+    // ═══════════════════════════════════════════
+    // MARK: - Invite Waiting
+    // ═══════════════════════════════════════════
+
+    @State private var showResendShare = false
+
+    private var inviteWaitingView: some View {
+        VStack(spacing: 24) {
+            Spacer()
+            Circle().fill(Color.primary.opacity(0.04)).frame(width: 80, height: 80)
+                .overlay { ProgressView().controlSize(.regular) }
+            VStack(spacing: 6) {
+                Text("Waiting for verification").font(Typo.context)
+                Text("Results appear here when \(c.customerName) completes the process.")
+                    .font(Typo.meta).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 40)
+            }
+
+            if let url = c.hostedVerifyURL, !url.isEmpty {
+                Button { showResendShare = true } label: { Text("Re-share Link") }
+                    .buttonStyle(SecondaryButtonStyle()).padding(.horizontal, 48)
+                .sheet(isPresented: $showResendShare) {
+                    ActivityView(items: [url])
+                }
+            }
+            Spacer()
+        }
+    }
 
     // ═══════════════════════════════════════════
     // MARK: - Config (steps 1-3 merged to feel lighter)
@@ -189,9 +208,13 @@ struct VerificationSheet: View {
             } else {
                 HStack(spacing: 10) {
                     ProgressView().controlSize(.small)
-                    Text(amlRunning ? "Running compliance screening..." : "Verifying address...").font(Typo.meta).foregroundStyle(.secondary)
+                    Text(amlRunning ? "Checking compliance..." : "Verifying address...").font(Typo.meta).foregroundStyle(.secondary)
                     Spacer()
-                }.padding(.horizontal, 20).padding(.vertical, 12)
+                }
+                .padding(.horizontal, 20).padding(.vertical, 14)
+                .background(Color.surfaceMuted.opacity(0.3))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .padding(.horizontal, 16).padding(.vertical, 8)
             }
 
             // Tabs
@@ -210,16 +233,116 @@ struct VerificationSheet: View {
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
 
-            // Pinned actions
-            if !amlRunning && !poaRunning {
-                HStack(spacing: 8) {
-                    reviewButton("Approve", Color.clear_, .approved)
-                    reviewButton("Flag", Color.flagged, .flagged)
-                    reviewButton("Decline", Color.review, .declined)
+            // Pinned bottom bar
+            VStack(spacing: 8) {
+                // Role & Rank
+                Menu {
+                    // Crew ranks
+                    Section("Crew") {
+                        ForEach(CrewRank.allCases) { r in
+                            Button {
+                                vm.updateEntityType(checkId: c.id, entityType: .seafarer)
+                                vm.setCrewRank(r, for: c.id)
+                            } label: {
+                                HStack {
+                                    Text(r.rawValue)
+                                    if c.entityType == .seafarer && c.crewRank == r { Image(systemName: "checkmark") }
+                                }
+                            }
+                        }
+                    }
+                    // Shore-based roles
+                    Section("Shore-Based") {
+                        ForEach(KYCCheck.EntityType.shoreBasedTypes, id: \.self) { et in
+                            Button {
+                                vm.updateEntityType(checkId: c.id, entityType: et)
+                            } label: {
+                                HStack {
+                                    Label(et.rawValue, systemImage: et.icon)
+                                    if c.entityType == et { Image(systemName: "checkmark") }
+                                }
+                            }
+                        }
+                    }
+                    // Ownership roles
+                    Section("Ownership") {
+                        ForEach(KYCCheck.EntityType.ownershipTypes, id: \.self) { et in
+                            Button {
+                                vm.updateEntityType(checkId: c.id, entityType: et)
+                            } label: {
+                                HStack {
+                                    Label(et.rawValue, systemImage: et.icon)
+                                    if c.entityType == et { Image(systemName: "checkmark") }
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: c.entityType.icon)
+                        VStack(alignment: .leading, spacing: 1) {
+                            if c.entityType.category == .crew {
+                                Text(c.crewRank?.rawValue ?? "Set Rank").font(Typo.body)
+                                Text("Crew").font(Typo.meta).foregroundStyle(.secondary)
+                            } else {
+                                Text(c.entityType.rawValue).font(Typo.body)
+                                Text(c.entityType.category.rawValue).font(Typo.meta).foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.up.chevron.down").font(.system(size: 10)).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10).padding(.horizontal, 16)
+                    .background(c.entityType.category == .crew && c.crewRank == nil ? Color.review.opacity(0.08) : Color.surfaceMuted)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
-                .padding(.horizontal, 16).padding(.vertical, 10)
-                .background(.bar)
+
+                // Document Portfolio
+                NavigationLink {
+                    DocumentPortfolioView(vm: vm, checkId: c.id)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "folder")
+                        Text("Document Portfolio")
+                        Spacer()
+                        let docs = c.documents ?? []
+                        let valid = docs.filter { $0.status == .valid }.count
+                        Text("\(valid)/\(docs.count)")
+                            .font(Typo.meta).foregroundStyle(.secondary)
+                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+                    }
+                    .font(Typo.body)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12).padding(.horizontal, 16)
+                    .background(Color.surfaceMuted)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+
+                NavigationLink {
+                    PDFReportView(vm: vm, checkId: c.id)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "doc.text")
+                        Text("PDF Report")
+                    }
+                    .font(Typo.body)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(Color.surfaceMuted)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+
+                if !amlRunning && !poaRunning {
+                    HStack(spacing: 8) {
+                        reviewButton("Approve", Color.clear_, .approved)
+                        reviewButton("Flag", Color.flagged, .flagged)
+                        reviewButton("Decline", Color.review, .declined)
+                    }
+                }
             }
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            .background(.bar)
         }
     }
 
@@ -244,6 +367,16 @@ struct VerificationSheet: View {
                             Text(w.shortDescription ?? w.risk ?? "").font(Typo.meta).foregroundStyle(Color.review)
                         }
                     }
+                } else {
+                    // Fallback: show data extracted from session decision
+                    if let dt = c.documentType {
+                        Text(dt.replacingOccurrences(of: "_", with: " ").capitalized).font(Typo.context)
+                    }
+                    if let v = c.extractedName, !v.isEmpty { DataRow(label: "Name", value: v, bold: true) }
+                    if let v = c.documentNumber { DataRow(label: "Number", value: v) }
+                    if let v = c.dateOfBirth { DataRow(label: "DOB", value: v) }
+                    if let v = c.nationality { DataRow(label: "Nationality", value: v.uppercased()) }
+                    if let v = c.expiryDate { DataRow(label: "Expires", value: v) }
                 }
                 // Images
                 if let paths = c.documentImagePaths, !paths.isEmpty {
@@ -258,6 +391,15 @@ struct VerificationSheet: View {
                         }
                     }
                 }
+                // Invite-based verification info
+                if c.sessionId != nil && (c.documentImagePaths == nil || c.documentImagePaths?.isEmpty == true) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "info.circle").font(Typo.meta).foregroundStyle(.secondary)
+                        Text("Document verified remotely via Didit. Images processed server-side.").font(Typo.meta).foregroundStyle(.secondary)
+                    }
+                    .padding(10).background(Color.surfaceMuted).clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+
                 // Notes
                 VStack(alignment: .leading, spacing: 6) {
                     Text("NOTES").font(Typo.meta).foregroundStyle(.secondary).tracking(0.8)
@@ -302,11 +444,36 @@ struct VerificationSheet: View {
                         Text("Re-run screening").font(Typo.meta)
                     }.foregroundStyle(.secondary)
                 } else {
-                    Text("No compliance data").font(Typo.meta).foregroundStyle(.quaternary)
+                    // AML not yet run — offer to run it
+                    VStack(spacing: 16) {
+                        Image(systemName: "shield.checkered").font(.system(size: 36)).foregroundStyle(.quaternary)
+                        Text("AML screening not performed").font(Typo.body).foregroundStyle(.secondary)
+
+                        if c.extractedName != nil {
+                            Button { Task { await runInitialAML() } } label: {
+                                Text("Run AML Screening")
+                            }
+                            .buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 24)
+                        } else {
+                            Text("Complete identity verification first").font(Typo.meta).foregroundStyle(.tertiary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity).padding(.vertical, 24)
                 }
             }
             .padding(20)
         }
+    }
+
+    private func runInitialAML() async {
+        amlRunning = true
+        do {
+            let result = try await vm.runAMLScreening(checkId: c.id)
+            amlResult = result
+        } catch {
+            print("[AML] Screening failed: \(error.localizedDescription)")
+        }
+        amlRunning = false
     }
 
     // ── Hit View (proposal #5: breathing) ──
@@ -429,7 +596,17 @@ struct VerificationSheet: View {
     }
 
     private func loadResults() {
-        if let raw = c.rawIDResponse, let d = raw.data(using: .utf8) { idResult = try? JSONDecoder().decode(IDVerificationResponse.self, from: d).idVerification }
+        if let raw = c.rawIDResponse, let d = raw.data(using: .utf8) {
+            // Try standalone ID response first
+            if let decoded = try? JSONDecoder().decode(IDVerificationResponse.self, from: d).idVerification {
+                idResult = decoded
+            }
+            // Fall back to session decision (invite-based checks store this format)
+            else if let decision = try? JSONDecoder().decode(SessionDecision.self, from: d) {
+                idResult = decision.idVerifications?.first
+                if amlResult == nil { amlResult = decision.aml?.first }
+            }
+        }
         if let raw = c.rawAMLResponse, let d = raw.data(using: .utf8) { amlResult = try? JSONDecoder().decode(AMLScreeningResponse.self, from: d).aml }
     }
 
@@ -480,10 +657,26 @@ struct VerificationSheet: View {
     }
 
     private func loadFile(_ url: URL, forAPI: Bool) -> Data? {
-        imgError = nil; guard url.startAccessingSecurityScopedResource() else { return nil }; defer { url.stopAccessingSecurityScopedResource() }
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        if isPDF(data) { if forAPI { guard let img = renderPDF(data), let j = img.jpegData(compressionQuality: 0.85) else { return nil }; return j } else { return data.count <= 15*1024*1024 ? data : nil } }
-        let r = ImageValidator.validate(data); if r.isValid, let c = r.compressedData { return c }; imgError = r.error?.localizedDescription; return nil
+        imgError = nil
+        guard url.startAccessingSecurityScopedResource() else { imgError = "Cannot access file"; return nil }
+        defer { url.stopAccessingSecurityScopedResource() }
+        guard let data = try? Data(contentsOf: url) else { imgError = "Cannot read file"; return nil }
+        print("[File] Loaded \(url.lastPathComponent): \(data.count) bytes, isPDF: \(isPDF(data))")
+        if isPDF(data) {
+            if forAPI {
+                // Render PDF page to JPEG for the verification API
+                guard let img = renderPDF(data) else { imgError = "Cannot render PDF"; return nil }
+                guard let jpeg = img.jpegData(compressionQuality: 0.90) else { imgError = "Cannot convert to JPEG"; return nil }
+                print("[File] PDF rendered to JPEG: \(jpeg.count) bytes")
+                return jpeg
+            } else {
+                return data.count <= 15*1024*1024 ? data : nil
+            }
+        }
+        let r = ImageValidator.validate(data)
+        if r.isValid, let c = r.compressedData { return c }
+        imgError = r.error?.localizedDescription
+        return nil
     }
 }
 
@@ -503,12 +696,58 @@ struct CameraCapture: UIViewControllerRepresentable {
 
 struct FilePicker: UIViewControllerRepresentable {
     let onPick: (URL) -> Void; @Environment(\.dismiss) private var dismiss
-    func makeUIViewController(context: Context) -> UIDocumentPickerViewController { let p = UIDocumentPickerViewController(forOpeningContentTypes: [.jpeg, .png, .heic, .tiff, .webP, .pdf], asCopy: true); p.delegate = context.coordinator; return p }
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let types: [UTType] = [.jpeg, .png, .heic, .tiff, .webP, .pdf, .image]
+        let p = UIDocumentPickerViewController(forOpeningContentTypes: types)
+        p.delegate = context.coordinator
+        p.allowsMultipleSelection = false
+        return p
+    }
     func updateUIViewController(_ vc: UIDocumentPickerViewController, context: Context) {}
     func makeCoordinator() -> Co { Co(self) }
     class Co: NSObject, UIDocumentPickerDelegate { let parent: FilePicker; init(_ p: FilePicker) { parent = p }
         func documentPicker(_ c: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) { if let u = urls.first { parent.onPick(u) }; parent.dismiss() }
         func documentPickerWasCancelled(_ c: UIDocumentPickerViewController) { parent.dismiss() } }
+}
+
+// MARK: - PDF Report (pushed, not sheeted — always works)
+
+struct PDFReportView: View {
+    @ObservedObject var vm: KYCViewModel
+    let checkId: String
+    @State private var pdfURL: URL?
+    @State private var showShare = false
+
+    var body: some View {
+        Group {
+            if let url = pdfURL {
+                PDFKitView(url: url).ignoresSafeArea(edges: .bottom)
+            } else {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("Generating report...").font(Typo.meta).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .navigationTitle("Report").navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if pdfURL != nil {
+                ToolbarItem(placement: .primaryAction) {
+                    Button { showShare = true } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showShare) {
+            if let url = pdfURL { ActivityView(items: [url]) }
+        }
+        .task {
+            // Generate on a slight delay so the push animation completes first
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            pdfURL = vm.generateReport(checkId: checkId)
+        }
+    }
 }
 
 struct PDFPreviewSheet: View {

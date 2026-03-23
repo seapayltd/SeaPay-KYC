@@ -2,39 +2,36 @@
 //  SubjectFlowView.swift
 //  OceanCheck
 //
-//  Subject self-verification — fully native, no browser.
-//  Enter code or scan QR → consent → capture ID → selfie → submit → done.
-//  Uses session token from the agent's invite for API auth.
+//  Subject self-verification — native consent, then Didit hosted verification.
+//  Enter link/scan QR → consent → hosted verification → done.
 //
 
 import SwiftUI
+import WebKit
 import AVFoundation
 
 struct SubjectFlowView: View {
     var appState: AppState
 
     @State private var phase: Phase = .enterCode
-    enum Phase { case enterCode, consent, captureID, selfie, submitting, complete, error }
+    enum Phase: Equatable { case enterCode, consent, verify, complete, uploadDocs, error }
 
     // Session
     @State private var code = ""
-    @State private var sessionId = ""
-    @State private var sessionToken = "" // temp credential from agent's invite
+    @State private var hostedURL = ""
     @State private var agentName = ""
     @State private var showQRScanner = false
 
-    // Captures
-    @State private var frontImage: Data?
-    @State private var backImage: Data?
-    @State private var selfieImage: Data?
-    @State private var showFrontCam = false
-    @State private var showBackCam = false
-    @State private var showSelfieCam = false
-
     // State
     @State private var error = ""
-    @State private var progressText = ""
     @State private var consent = false
+    @State private var showDoneButton = false
+
+    // Certificate upload
+    @State private var capturedCerts: [(type: MaritimeDocType, data: Data)] = []
+    @State private var showCertCamera = false
+    @State private var currentCertType: MaritimeDocType?
+    @State private var certImage: Data?
 
     var body: some View {
         NavigationStack {
@@ -42,10 +39,9 @@ struct SubjectFlowView: View {
                 switch phase {
                 case .enterCode: enterCodeView
                 case .consent: consentView
-                case .captureID: captureIDView
-                case .selfie: selfieView
-                case .submitting: submittingView
+                case .verify: verifyWebView
                 case .complete: completeView
+                case .uploadDocs: uploadDocsView
                 case .error: errorView
                 }
             }
@@ -55,22 +51,22 @@ struct SubjectFlowView: View {
             .toolbar {
                 ToolbarItem(placement: .principal) { Text("OceanCheck").font(BrandFont.brand(17)) }
                 ToolbarItem(placement: .cancellationAction) {
-                    if phase != .complete && phase != .submitting {
-                        Button { if phase == .enterCode { appState.showSubjectFlow = false } else { withAnimation { phase = prevPhase } } } label: {
+                    if phase == .enterCode || phase == .consent {
+                        Button { if phase == .enterCode { appState.showSubjectFlow = false } else { withAnimation { phase = .enterCode } } } label: {
                             Image(systemName: phase == .enterCode ? "xmark" : "chevron.left").foregroundStyle(.secondary)
                         }
                     }
                 }
+                ToolbarItem(placement: .confirmationAction) {
+                    if phase == .verify && showDoneButton {
+                        Button { withAnimation { phase = .complete } } label: {
+                            Text("Done").fontWeight(.medium)
+                        }
+                    }
+                }
             }
-            .fullScreenCover(isPresented: $showFrontCam) { CameraCapture(result: $frontImage).ignoresSafeArea() }
-            .fullScreenCover(isPresented: $showBackCam) { CameraCapture(result: $backImage).ignoresSafeArea() }
-            .fullScreenCover(isPresented: $showSelfieCam) { SelfieCapture(result: $selfieImage).ignoresSafeArea() }
-            .sheet(isPresented: $showQRScanner) { QRScannerView { v in showQRScanner = false; parseQR(v) } }
+            .sheet(isPresented: $showQRScanner) { QRScannerView { v in showQRScanner = false; parseInput(v) } }
         }
-    }
-
-    private var prevPhase: Phase {
-        switch phase { case .consent: .enterCode; case .captureID: .consent; case .selfie: .captureID; default: .enterCode }
     }
 
     // ═══════════ ENTER CODE ═══════════
@@ -78,28 +74,54 @@ struct SubjectFlowView: View {
     private var enterCodeView: some View {
         VStack(spacing: 0) {
             Spacer()
-            VStack(spacing: 20) {
-                Text("Enter your code").font(Typo.context)
-                Text("Given to you by the verifying agent").font(Typo.meta).foregroundStyle(.secondary)
+            VStack(spacing: 28) {
+                Image(systemName: "checkmark.shield").font(.system(size: 40)).foregroundStyle(.primary.opacity(0.15))
+                Text("Verify Your Identity").font(Typo.context)
 
-                TextField("OC-XXXXXX", text: $code)
-                    .font(.system(size: 28, weight: .bold, design: .monospaced))
-                    .multilineTextAlignment(.center)
-                    .textInputAutocapitalization(.characters).autocorrectionDisabled()
-                    .padding(16).background(Color.surfaceMuted)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .padding(.horizontal, 40)
+                // Two peer options
+                VStack(spacing: 10) {
+                    // Scan QR — primary for in-person
+                    Button { showQRScanner = true } label: {
+                        HStack(spacing: 14) {
+                            Image(systemName: "qrcode.viewfinder").font(.system(size: 20)).frame(width: 28)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Scan QR Code").font(Typo.body).fontWeight(.medium)
+                                Text("Point camera at the agent's screen").font(Typo.meta).opacity(0.7)
+                            }
+                            Spacer()
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16)
+                        .background(Color.primary)
+                        .foregroundStyle(Color.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                    }
 
-                Button { withAnimation { phase = .consent } } label: { Text("Continue") }
-                    .buttonStyle(PrimaryButtonStyle(isEnabled: code.count >= 4))
-                    .disabled(code.count < 4).padding(.horizontal, 40)
+                    // Paste link — secondary for remote
+                    VStack(spacing: 10) {
+                        TextField("Paste invite link here", text: $code)
+                            .font(Typo.body)
+                            .multilineTextAlignment(.center)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .padding(14).background(Color.surfaceMuted)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .onChange(of: code) { _, newValue in
+                                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if trimmed.contains("://") { parseInput(trimmed) }
+                            }
 
-                Button { showQRScanner = true } label: {
-                    Text("or scan QR code").font(Typo.meta).foregroundStyle(.secondary)
+                        if code.count >= 8 {
+                            Button { parseInput(code) } label: { Text("Continue") }
+                                .buttonStyle(PrimaryButtonStyle())
+                                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                        }
+                    }
                 }
+                .padding(.horizontal, 32)
             }
             Spacer()
         }
+        .onAppear { handleDeepLinkIfNeeded() }
     }
 
     // ═══════════ CONSENT ═══════════
@@ -130,7 +152,7 @@ struct SubjectFlowView: View {
                     Text("I consent to identity verification").font(Typo.meta)
                 }.tint(.primary).padding(.horizontal, 32)
 
-                Button { withAnimation { phase = .captureID } } label: { Text("Begin") }
+                Button { showDoneButton = false; withAnimation { phase = .verify } } label: { Text("Begin") }
                     .buttonStyle(PrimaryButtonStyle(isEnabled: consent)).disabled(!consent).padding(.horizontal, 40)
 
                 Button { appState.showSubjectFlow = false } label: {
@@ -143,87 +165,120 @@ struct SubjectFlowView: View {
     }
 
     private func step(_ num: String, _ text: String) -> some View {
-        HStack(spacing: 10) {
-            Text(num).font(Typo.meta).foregroundStyle(Color.surface).frame(width: 20, height: 20).background(Color.primary).clipShape(Circle())
+        HStack(spacing: 12) {
+            Text(num).font(Typo.body).foregroundStyle(Color.surface).frame(width: 26, height: 26).background(Color.primary).clipShape(Circle())
             Text(text).font(Typo.body)
         }
     }
 
-    // ═══════════ CAPTURE ID ═══════════
+    // ═══════════ VERIFY (Hosted WebView) ═══════════
 
-    private var captureIDView: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                stepLabel("Step 1 of 3", "Scan Your ID")
-
-                captureSlot("Front of document", data: frontImage, cam: $showFrontCam, required: true)
-                captureSlot("Back (if applicable)", data: backImage, cam: $showBackCam, required: false)
-
-                Button { withAnimation { phase = .selfie } } label: { Text("Next") }
-                    .buttonStyle(PrimaryButtonStyle(isEnabled: frontImage != nil)).disabled(frontImage == nil)
-                    .padding(.horizontal, 32)
-
-                Spacer(minLength: 32)
-            }.padding(.horizontal, 24)
-        }
-    }
-
-    // ═══════════ SELFIE ═══════════
-
-    private var selfieView: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                stepLabel("Step 2 of 3", "Take a Selfie")
-
-                if let data = selfieImage, let img = UIImage(data: data) {
-                    ZStack(alignment: .bottomTrailing) {
-                        Image(uiImage: img).resizable().scaledToFit().frame(maxHeight: 240).frame(maxWidth: .infinity)
-                            .clipShape(RoundedRectangle(cornerRadius: 16))
-                        Button { showSelfieCam = true } label: {
-                            Image(systemName: "pencil.circle.fill").font(.title2).foregroundStyle(.white, .primary).padding(8)
-                        }
-                    }.padding(.horizontal, 24)
-                } else {
-                    Button { showSelfieCam = true } label: {
-                        VStack(spacing: 12) {
-                            Image(systemName: "faceid").font(.system(size: 48)).foregroundStyle(.primary.opacity(0.2))
-                            Text("Take Selfie").font(Typo.body)
-                        }
-                        .frame(maxWidth: .infinity).frame(height: 180).background(Color.surfaceMuted)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                    }.padding(.horizontal, 24)
+    private var verifyWebView: some View {
+        Group {
+            if let url = URL(string: hostedURL) {
+                VerificationWebView(url: url) {
+                    withAnimation { showDoneButton = true }
                 }
-
-                Text("Look straight at the camera. Neutral expression. Good lighting.")
-                    .font(Typo.meta).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 32)
-
-                Button { withAnimation { phase = .submitting }; Task { await submit() } } label: { Text("Submit") }
-                    .buttonStyle(PrimaryButtonStyle(isEnabled: selfieImage != nil)).disabled(selfieImage == nil)
-                    .padding(.horizontal, 32)
-
-                Spacer(minLength: 32)
+                .ignoresSafeArea(edges: .bottom)
+            } else {
+                VStack(spacing: 16) {
+                    Text("Invalid verification URL").font(Typo.body).foregroundStyle(.secondary)
+                    Button { withAnimation { phase = .enterCode } } label: { Text("Go Back") }
+                        .buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 48)
+                }
             }
         }
-    }
-
-    // ═══════════ SUBMITTING ═══════════
-
-    private var submittingView: some View {
-        VStack(spacing: 16) { Spacer(); ProgressView().controlSize(.large); Text(progressText).font(Typo.body).foregroundStyle(.secondary); Spacer() }
     }
 
     // ═══════════ COMPLETE ═══════════
 
     private var completeView: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 24) {
             Spacer()
             Circle().fill(Color.clear_.opacity(0.1)).frame(width: 72, height: 72)
                 .overlay { Image(systemName: "checkmark").font(.title).foregroundStyle(Color.clear_) }
-            Text("Submitted").font(Typo.context)
-            Text("The agent will review your results.").font(Typo.meta).foregroundStyle(.secondary)
-            Button { appState.showSubjectFlow = false } label: { Text("Done") }
-                .buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 48)
+            Text("Identity Verified").font(Typo.context)
+
+            VStack(spacing: 12) {
+                Text("Speed up your onboarding by uploading your maritime certificates now.").font(Typo.meta).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 32)
+
+                Button { withAnimation { phase = .uploadDocs } } label: { Text("Upload Certificates") }
+                    .buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 48)
+
+                Button { appState.showSubjectFlow = false } label: {
+                    Text("Skip for now").font(Typo.meta).foregroundStyle(.secondary)
+                }
+            }
             Spacer()
+        }
+    }
+
+    // ═══════════ UPLOAD DOCS ═══════════
+
+    private let commonDocs: [MaritimeDocType] = [
+        .seamansBook, .medicalENG1, .stcwBST, .securityAwareness,
+        .cocDeck, .cocEngine, .gmdss, .flagEndorsement, .survivalCraft
+    ]
+
+    private var uploadDocsView: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: 16) {
+                    Text("Your Certificates").font(Typo.context).padding(.top, 20)
+                    Text("Photograph each certificate you have").font(Typo.meta).foregroundStyle(.secondary)
+
+                    VStack(spacing: 6) {
+                        ForEach(commonDocs) { docType in
+                            let captured = capturedCerts.contains(where: { $0.type == docType })
+                            Button {
+                                currentCertType = docType
+                                showCertCamera = true
+                            } label: {
+                                HStack(spacing: 14) {
+                                    Image(systemName: docType.icon).font(.system(size: 14))
+                                        .foregroundStyle(captured ? Color.clear_ : .secondary)
+                                        .frame(width: 28)
+                                    Text(docType.displayName).font(Typo.body).lineLimit(1)
+                                    Spacer()
+                                    if captured {
+                                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.clear_)
+                                    } else {
+                                        Image(systemName: "camera").foregroundStyle(.secondary)
+                                    }
+                                }
+                                .padding(.horizontal, 16).padding(.vertical, 13)
+                                .background(captured ? Color.clear_.opacity(0.06) : Color.surfaceMuted)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                            }
+                            .foregroundStyle(.primary)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+
+                    Spacer(minLength: 32)
+                }
+            }
+
+            // Bottom bar
+            VStack(spacing: 8) {
+                if !capturedCerts.isEmpty {
+                    Text("\(capturedCerts.count) certificate\(capturedCerts.count == 1 ? "" : "s") captured").font(Typo.meta).foregroundStyle(Color.clear_)
+                }
+                Button { appState.showSubjectFlow = false } label: {
+                    Text(capturedCerts.isEmpty ? "Skip" : "Done")
+                }
+                .buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 32)
+            }
+            .padding(.vertical, 12).background(.bar)
+        }
+        .fullScreenCover(isPresented: $showCertCamera) {
+            CameraCapture(result: $certImage).ignoresSafeArea()
+        }
+        .onChange(of: certImage) { _, newValue in
+            if let data = newValue, let docType = currentCertType {
+                capturedCerts.append((type: docType, data: data))
+                certImage = nil
+            }
         }
     }
 
@@ -234,106 +289,122 @@ struct SubjectFlowView: View {
             Spacer()
             Image(systemName: "xmark.circle").font(.system(size: 48)).foregroundStyle(Color.flagged.opacity(0.5))
             Text(error).font(Typo.meta).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 32)
-            Button { withAnimation { phase = .selfie } } label: { Text("Try Again") }.buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 48)
+            Button { withAnimation { phase = .enterCode } } label: { Text("Try Again") }
+                .buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 48)
             Button { appState.showSubjectFlow = false } label: { Text("Cancel").font(Typo.meta).foregroundStyle(.secondary) }
             Spacer()
         }
     }
 
-    // ═══════════ SUBMIT ═══════════
+    // ═══════════ PARSE INPUT ═══════════
 
-    private func submit() async {
-        guard let front = frontImage else { return }
-        progressText = "Uploading documents..."
+    private func parseInput(_ value: String) {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
 
-        do {
-            let api = VerificationAPIService.shared
-
-            // Use session token or agent's API key (if available)
-            // The standalone API accepts the agent's key — the session context
-            // links the results back. If no key, we need the session token.
-            progressText = "Verifying identity..."
-            let (_, _) = try await api.verifyID(frontImage: front, backImage: backImage, vendorData: sessionId.isEmpty ? code : sessionId)
-
-            if let selfie = selfieImage {
-                progressText = "Checking liveness..."
-                // Passive liveness with selfie
-                // The API would run this server-side via the workflow
-            }
-
-            progressText = "Finalizing..."
-            try await Task.sleep(nanoseconds: 500_000_000)
-            withAnimation { phase = .complete }
-        } catch {
-            self.error = error.localizedDescription
-            withAnimation { phase = .error }
-        }
-    }
-
-    // ═══════════ QR ═══════════
-
-    private func parseQR(_ value: String) {
-        // Deep link: oceancheck://verify?session=X&token=Y&agent=Z
-        if let url = URL(string: value), let components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
-            sessionId = components.queryItems?.first(where: { $0.name == "session" })?.value ?? ""
-            sessionToken = components.queryItems?.first(where: { $0.name == "token" })?.value ?? ""
+        // Deep link: oceancheck://verify?session=X&url=Y&agent=Z
+        if let url = URL(string: trimmed), let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           url.scheme == AppConfiguration.urlScheme {
+            hostedURL = components.queryItems?.first(where: { $0.name == "url" })?.value?.removingPercentEncoding ?? ""
             agentName = components.queryItems?.first(where: { $0.name == "agent" })?.value?.removingPercentEncoding ?? ""
-            if !sessionId.isEmpty {
-                code = "OC-" + String(sessionId.replacingOccurrences(of: "-", with: "").prefix(6)).uppercased()
-                withAnimation { phase = .consent }
-                return
-            }
+            if !hostedURL.isEmpty { withAnimation { phase = .consent }; return }
         }
-        // Plain code
-        if !value.isEmpty { code = value; withAnimation { phase = .consent } }
+
+        // Direct hosted URL (https://...)
+        if trimmed.hasPrefix("https://"), let url = URL(string: trimmed), url.host != nil {
+            hostedURL = trimmed
+            withAnimation { phase = .consent }
+            return
+        }
+
+        error = "Please paste the full link from your agent's message, or scan the QR code."
+        withAnimation { phase = .error }
     }
 
-    // ═══════════ HELPERS ═══════════
-
-    private func stepLabel(_ num: String, _ title: String) -> some View {
-        VStack(spacing: 6) {
-            Text(num).font(Typo.meta).foregroundStyle(.secondary)
-            Text(title).font(Typo.context)
-        }.padding(.top, 16)
-    }
-
-    private func captureSlot(_ title: String, data: Data?, cam: Binding<Bool>, required: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack { Text(title).font(Typo.meta).foregroundStyle(.secondary); if required { Text("*").foregroundStyle(Color.review) } }
-            if let data, let img = UIImage(data: data) {
-                ZStack(alignment: .bottomTrailing) {
-                    Image(uiImage: img).resizable().scaledToFit().frame(maxHeight: 140).frame(maxWidth: .infinity).clipShape(RoundedRectangle(cornerRadius: 12))
-                    Button { cam.wrappedValue = true } label: { Image(systemName: "pencil.circle.fill").font(.title3).foregroundStyle(.white, .primary).padding(6) }
-                }
-            } else {
-                Button { cam.wrappedValue = true } label: {
-                    VStack(spacing: 6) {
-                        Image(systemName: "camera.fill").font(.title3)
-                        Text("Take Photo").font(Typo.meta)
-                    }
-                    .frame(maxWidth: .infinity).frame(height: 80).background(Color.surfaceMuted)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                }
-            }
-        }
+    private func handleDeepLinkIfNeeded() {
+        guard let url = appState.incomingDeepLink else { return }
+        appState.incomingDeepLink = nil
+        parseInput(url.absoluteString)
     }
 }
 
-// MARK: - Selfie Camera (front-facing)
+// MARK: - Verification WebView (with JS completion detection)
 
-struct SelfieCapture: UIViewControllerRepresentable {
-    @Binding var result: Data?; @Environment(\.dismiss) private var dismiss
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let p = UIImagePickerController(); p.sourceType = .camera; p.cameraDevice = .front; p.delegate = context.coordinator; return p
-    }
-    func updateUIViewController(_ vc: UIImagePickerController, context: Context) {}
-    func makeCoordinator() -> C { C(self) }
-    class C: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-        let parent: SelfieCapture; init(_ p: SelfieCapture) { parent = p }
-        func imagePickerController(_ p: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-            if let img = info[.originalImage] as? UIImage { parent.result = img.jpegData(compressionQuality: 0.85) }; parent.dismiss()
+struct VerificationWebView: UIViewRepresentable {
+    let url: URL
+    let onComplete: () -> Void
+
+    func makeUIView(context: Context) -> WKWebView {
+        let config = WKWebViewConfiguration()
+        config.allowsInlineMediaPlayback = true
+        config.mediaTypesRequiringUserActionForPlayback = []
+
+        // Inject a script that polls the DOM for completion signals every 2s
+        let js = WKUserScript(source: Self.detectionScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+        config.userContentController.addUserScript(js)
+        config.userContentController.add(context.coordinator, name: "completionHandler")
+
+        let webView = WKWebView(frame: .zero, configuration: config)
+        webView.navigationDelegate = context.coordinator
+        webView.scrollView.bounces = false
+        webView.load(URLRequest(url: url))
+        return webView
+     }
+
+    func updateUIView(_ webView: WKWebView, context: Context) {}
+    func makeCoordinator() -> Coordinator { Coordinator(onComplete: onComplete) }
+
+    // JS that watches for Didit's completion state via DOM polling + MutationObserver
+    private static let detectionScript = """
+    (function() {
+        var done = false;
+        var signals = ['completed', 'approved', 'verified', 'thank you', 'all done',
+                       'verification complete', 'successfully', 'submitted'];
+
+        function check() {
+            if (done) return;
+            var text = (document.title + ' ' + (document.body ? document.body.innerText : '')).toLowerCase();
+            for (var i = 0; i < signals.length; i++) {
+                if (text.indexOf(signals[i]) !== -1) {
+                    done = true;
+                    window.webkit.messageHandlers.completionHandler.postMessage('done');
+                    return;
+                }
+            }
         }
-        func imagePickerControllerDidCancel(_ p: UIImagePickerController) { parent.dismiss() }
+
+        // Poll every 2 seconds
+        setInterval(check, 2000);
+
+        // Also observe DOM mutations for faster detection
+        if (typeof MutationObserver !== 'undefined' && document.body) {
+            var obs = new MutationObserver(function() { check(); });
+            obs.observe(document.body, { childList: true, subtree: true, characterData: true });
+        }
+    })();
+    """
+
+    class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+        let onComplete: () -> Void
+        private var fired = false
+        init(onComplete: @escaping () -> Void) { self.onComplete = onComplete }
+
+        // JS → Swift callback
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard !fired, message.name == "completionHandler" else { return }
+            fired = true
+            DispatchQueue.main.async { self.onComplete() }
+        }
+
+        // Grant camera access
+        func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin, initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType, decisionHandler: @escaping (WKPermissionDecision) -> Void) {
+            decisionHandler(.grant)
+        }
+
+        // Re-inject the detection script after SPA navigations
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            webView.evaluateJavaScript(VerificationWebView.detectionScript, completionHandler: nil)
+        }
     }
 }
 

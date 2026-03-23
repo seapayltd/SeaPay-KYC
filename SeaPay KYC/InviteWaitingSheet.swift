@@ -2,7 +2,8 @@
 //  InviteSheet.swift
 //  OceanCheck
 //
-//  Agent invite: code + QR + share. QR encodes the hosted verification URL.
+//  Agent invite: create session, show QR, share link. That's all.
+//  Polling lives in the ViewModel — it continues after this sheet is dismissed.
 //
 
 import SwiftUI
@@ -13,20 +14,12 @@ struct InviteSheet: View {
     let check: KYCCheck
     @Environment(\.dismiss) private var dismiss
 
-    @State private var sessionId = ""
-    @State private var sessionToken = ""
-    @State private var code = ""
     @State private var hostedURL = ""
     @State private var error: String?
     @State private var creating = true
-    @State private var completed = false
-    @State private var status = "Waiting"
-    @State private var pollTimer: Timer?
     @State private var showShare = false
-    @State private var codeCopied = false
+    @State private var linkCopied = false
     @State private var sent = false
-
-    private let appStoreURL = "https://apps.apple.com/app/oceancheck/id0000000000"
 
     private var agent: String {
         let full = UserDefaults.standard.string(forKey: "agentName") ?? "Agent"
@@ -35,10 +28,9 @@ struct InviteSheet: View {
     }
 
     private var message: String {
-        var msg = "Hi \(check.customerName), please verify your identity:\n\n"
-        if !hostedURL.isEmpty { msg += "Open this link:\n\(hostedURL)\n\n" }
-        msg += "Or download OceanCheck and enter code \(code):\n\(appStoreURL)\n\n"
-        msg += "Takes 2 minutes.\n— \(agent), SeaPay\u{00AE}"
+        var msg = "Please verify your identity for maritime compliance.\n\n"
+        msg += "Open this link to start:\n\(hostedURL)\n\n"
+        msg += "Takes 2 minutes.\n\u{2014} \(agent), SeaPay\u{00AE}"
         return msg
     }
 
@@ -46,62 +38,58 @@ struct InviteSheet: View {
         NavigationStack {
             Group {
                 if creating { VStack { Spacer(); ProgressView(); Spacer() } }
-                else if let error { VStack { Spacer(); Text(error).font(Typo.meta).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(32); Button("Retry") { Task { await create() } }.buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 48); Spacer() } }
-                else if completed { doneView }
+                else if let error { errorView(error) }
+                else if sent { sentView }
                 else { mainView }
             }
+            .animation(.smooth(duration: 0.3), value: creating)
+            .animation(.smooth(duration: 0.3), value: sent)
             .background(Color.surface.ignoresSafeArea())
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { stop(); dismiss() } } }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .task { await create() }
-            .onDisappear { stop() }
         }
     }
+
+    // MARK: - Views
 
     private var mainView: some View {
         VStack(spacing: 0) {
             Spacer()
 
-            if !sent {
-                VStack(spacing: 24) {
-                    // QR — encodes deep link with session token for native in-app verification
-                    let qrData = "\(AppConfiguration.urlScheme)://verify?session=\(sessionId)&token=\(sessionToken)&agent=\(agent.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
-                    if let qr = generateQR(qrData) {
-                        VStack(spacing: 8) {
-                            Image(uiImage: qr)
-                                .interpolation(.none)
-                                .resizable().scaledToFit()
-                                .frame(width: 180, height: 180)
-                                .background(Color.white)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
+            // Name context
+            Text("Invite \(check.displayName)").font(Typo.meta).foregroundStyle(.secondary)
+                .padding(.bottom, 20)
 
-                            Text("Show this to \(check.customerName)").font(Typo.meta).foregroundStyle(.secondary)
-                        }
+            // QR
+            if let qr = generateQR(hostedURL) {
+                Image(uiImage: qr)
+                    .interpolation(.none).resizable().scaledToFit()
+                    .frame(width: 200, height: 200)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+
+            Spacer().frame(height: 28)
+
+            // Actions
+            VStack(spacing: 12) {
+                Button { showShare = true } label: { Text("Send Invite") }
+                    .buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 48)
+                    .sheet(isPresented: $showShare) {
+                        ActivityView(items: [message])
+                            .onDisappear { withAnimation(.smooth) { sent = true } }
                     }
 
-                    // Code
-                    VStack(spacing: 6) {
-                        Text(code)
-                            .font(.system(size: 32, weight: .bold, design: .monospaced))
-                            .tracking(4)
-                            .onTapGesture { UIPasteboard.general.string = code; withAnimation { codeCopied = true }; DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { withAnimation { codeCopied = false } } }
-                        Text(codeCopied ? "Copied" : "Tap to copy code").font(Typo.meta).foregroundStyle(.secondary)
-                    }
-
-                    // Send (for remote)
-                    Button { showShare = true } label: { Text("Send Invite") }
-                        .buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 48)
-                        .sheet(isPresented: $showShare) {
-                            ActivityView(items: [message])
-                                .onDisappear { withAnimation(.smooth) { sent = true } }
-                        }
-                }
-            } else {
-                // Waiting state
-                VStack(spacing: 16) {
-                    Text(code).font(.system(size: 18, weight: .bold, design: .monospaced)).foregroundStyle(.secondary)
-                    Circle().fill(Color.primary.opacity(0.06)).frame(width: 64, height: 64).overlay { ProgressView() }
-                    Text("Waiting for \(check.customerName)...").font(Typo.body).foregroundStyle(.secondary)
+                Button {
+                    UIPasteboard.general.string = hostedURL
+                    withAnimation { linkCopied = true }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { withAnimation { linkCopied = false } }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: linkCopied ? "checkmark" : "doc.on.doc").font(Typo.meta)
+                        Text(linkCopied ? "Copied" : "Copy Link").font(Typo.meta)
+                    }.foregroundStyle(.secondary)
                 }
             }
 
@@ -109,42 +97,31 @@ struct InviteSheet: View {
         }
     }
 
-    private var doneView: some View {
-        VStack(spacing: 16) {
+    private var sentView: some View {
+        VStack(spacing: 20) {
             Spacer()
-            Circle().fill(Color.clear_.opacity(0.1)).frame(width: 64, height: 64)
-                .overlay { Image(systemName: "checkmark").font(.title2).foregroundStyle(Color.clear_) }
-            Text("Done").font(Typo.context)
-            Text("\(check.customerName) completed verification.").font(Typo.meta).foregroundStyle(.secondary)
-            Button("View Results") { dismiss() }.buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 48)
+            Circle().fill(Color.clear_.opacity(0.08)).frame(width: 72, height: 72)
+                .overlay { Image(systemName: "paperplane").font(.system(size: 24)).foregroundStyle(Color.clear_) }
+            Text("Invite Sent").font(Typo.context)
+            Text("Status updates automatically on the home screen.").font(Typo.meta).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 32)
+            Button("Done") { dismiss() }.buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 48)
             Spacer()
         }
     }
 
-    // MARK: - Session + Polling
+    private func errorView(_ msg: String) -> some View {
+        VStack { Spacer(); Text(msg).font(Typo.meta).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(32); Button("Retry") { Task { await create() } }.buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 48); Spacer() }
+    }
+
+    // MARK: - Create Session
 
     private func create() async {
         creating = true; error = nil
         do {
             let r = try await vm.createInviteSession(checkId: check.id)
-            sessionId = r.sessionId
-            sessionToken = r.sessionToken
             hostedURL = r.verifyURL
-            code = r.code
-            creating = false; startPoll()
+            creating = false
         } catch { self.error = error.localizedDescription; creating = false }
-    }
-
-    private func startPoll() { pollTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { _ in Task { await poll() } } }
-    private func stop() { pollTimer?.invalidate(); pollTimer = nil }
-
-    private func poll() async {
-        guard !sessionId.isEmpty else { return }
-        do {
-            let d = try await vm.pollSessionDecision(checkId: check.id, sessionId: sessionId)
-            status = d.status
-            if d.status == "Approved" || d.status == "Declined" { stop(); withAnimation { completed = true } }
-        } catch {}
     }
 
     // MARK: - QR

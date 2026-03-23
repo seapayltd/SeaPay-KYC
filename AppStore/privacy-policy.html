@@ -17,53 +17,63 @@
 <body>
 
 <h1>OceanCheck — Privacy Policy</h1>
-<p class="meta">Effective date: March 2026 &nbsp;|&nbsp; Last updated: 20 March 2026</p>
+<p class="meta">Effective date: March 2026 &nbsp;|&nbsp; Last updated: 22 March 2026</p>
 
-<p>This privacy policy describes how the OceanCheck mobile application ("App"), operated by Seapay Ltd. ("we", "us", "our"), collects, uses, and protects information when you use the App.</p>
+<p>This privacy policy describes how the OceanCheck mobile application ("App"), operated by Nave Magna Ltd. trading as SeaPay ("we", "us", "our"), collects, uses, and protects information when you use the App.</p>
 
 <h2>1. Data Controller</h2>
-<p><strong>Seapay Ltd.</strong><br>
+<p><strong>Nave Magna Ltd.</strong> (trading as SeaPay)<br>
 ICO Registration: ZB626725<br>
 Contact: <a href="https://seapay.me/contact/">https://seapay.me/contact/</a></p>
 
 <h2>2. Information We Collect</h2>
 <p>The App processes the following categories of data:</p>
 <ul>
-    <li><strong>Identity documents:</strong> Photos or scans of passports, ID cards, driver licenses, and residence permits uploaded by the agent for verification purposes.</li>
+    <li><strong>Identity documents:</strong> Photos or scans of passports, ID cards, driver licenses, residence permits, and maritime certificates uploaded for verification and compliance tracking.</li>
     <li><strong>Personal information extracted from documents:</strong> Full name, date of birth, nationality, document number, expiry date, address, and gender — extracted automatically via optical character recognition (OCR).</li>
+    <li><strong>Maritime certificates:</strong> STCW certificates, Certificates of Competency, medical certificates (ENG1/PEME), flag state endorsements, and other maritime qualifications — photographed and tracked with expiry dates.</li>
+    <li><strong>Vessel information:</strong> Vessel name, IMO number, flag state, port of registry, vessel type, and vessel certificates — entered manually or extracted via OCR from Certificates of Registry.</li>
+    <li><strong>Corporate information:</strong> Company names, registration numbers, jurisdictions, and beneficial ownership percentages for entity verification (ship owners, UBOs, management companies).</li>
     <li><strong>Proof of address documents:</strong> Utility bills, bank statements, or official letters uploaded for address verification.</li>
-    <li><strong>Agent information:</strong> The name entered during setup, used for audit trails and PDF reports.</li>
-    <li><strong>Location data:</strong> GPS coordinates captured at the time of verification, if permission is granted, for audit purposes.</li>
+    <li><strong>Agent information:</strong> The compliance officer's name entered during setup, used for audit trails and PDF reports.</li>
+    <li><strong>Location data:</strong> GPS coordinates captured at the time of verification, if permission is granted, for audit trail purposes.</li>
     <li><strong>API key:</strong> Your verification service API key, stored securely in the iOS Keychain.</li>
+    <li><strong>Profile photos:</strong> Automatically extracted from passport scans or captured separately for crew identification.</li>
 </ul>
 
 <h2>3. How Data Is Processed</h2>
 <ul>
-    <li>Document images are sent to third-party identity verification APIs for processing (OCR extraction, document authenticity checks, AML/sanctions screening).</li>
+    <li>Identity document images are sent to third-party identity verification APIs for processing (OCR extraction, document authenticity checks, AML/sanctions screening).</li>
     <li>Personal data extracted from documents is used to perform anti-money laundering (AML) screening against global sanctions, PEP, and adverse media databases.</li>
-    <li>Verification results and agent notes are stored locally on the device.</li>
-    <li>PDF reports are generated locally on the device and shared only when the agent explicitly chooses to export them.</li>
+    <li>Maritime certificate images are stored locally only — they are NOT sent to any external service. They are tracked for expiry management purposes.</li>
+    <li>Vessel Certificate of Registry documents are processed locally using on-device OCR (Apple Vision framework) — no external transmission.</li>
+    <li>Verification results, agent notes, and crew/vessel data are stored locally on the device.</li>
+    <li>PDF compliance reports and CSV exports are generated locally on the device and shared only when the agent explicitly chooses to export them.</li>
+    <li>Push notifications for document expiry are scheduled locally using iOS notification services — no external push notification service is used.</li>
 </ul>
 
 <h2>4. Data Storage</h2>
 <ul>
-    <li><strong>On device:</strong> Verification records, captured images, agent notes, and PDF reports are stored in the app's sandboxed Documents directory on the iOS device. The API key is stored in the iOS Keychain with device-only access protection.</li>
-    <li><strong>No cloud storage:</strong> The App does not upload data to any cloud storage, analytics service, or backend server operated by Seapay Ltd.</li>
-    <li><strong>Third-party processing:</strong> Document images and extracted personal data are transmitted to the identity verification API provider for processing. This data is subject to the provider's data processing terms.</li>
+    <li><strong>On device:</strong> All verification records, captured images, maritime certificates, vessel data, crew data, agent notes, and generated reports are stored in the app's sandboxed Documents directory on the iOS device.</li>
+    <li><strong>Keychain:</strong> The API key and workflow ID are stored in the iOS Keychain with device-only access protection.</li>
+    <li><strong>Backup files:</strong> When the agent exports a backup, all data is packaged into a ZIP file and shared via the iOS share sheet. The backup file destination is controlled entirely by the agent.</li>
+    <li><strong>No cloud storage:</strong> The App does not upload data to any cloud storage, analytics service, or backend server operated by Nave Magna Ltd.</li>
+    <li><strong>Third-party processing:</strong> Identity document images and extracted personal data are transmitted to the identity verification API provider (Didit, https://didit.me) for processing. This data is subject to the provider's data processing terms.</li>
 </ul>
 
 <h2>5. Data Retention</h2>
 <ul>
-    <li>All data stored on the device persists until the agent deletes individual checks or performs a full reset from the Settings screen.</li>
+    <li>All data stored on the device persists until the agent deletes individual checks, vessels, or documents, or performs a full reset from the Settings screen.</li>
     <li>Data transmitted to third-party verification APIs is retained according to the API provider's retention policies.</li>
-    <li>The App does not implement automatic data expiration. Agents are responsible for managing data retention in accordance with their organisation's policies.</li>
+    <li>The App provides document expiry tracking and notifications but does not automatically delete expired records. Agents are responsible for managing data retention in accordance with their organisation's policies and applicable maritime regulations.</li>
 </ul>
 
 <h2>6. Data Sharing</h2>
 <p>We do not sell, rent, or share personal data with third parties except:</p>
 <ul>
-    <li>With the identity verification API provider, as necessary to perform the verification services requested by the agent.</li>
-    <li>When the agent explicitly exports a PDF report and shares it via the iOS share sheet.</li>
+    <li>With the identity verification API provider (Didit), as necessary to perform the identity verification and AML screening services requested by the agent.</li>
+    <li>When the agent explicitly exports data via PDF reports, CSV files, compliance packets, or backup files using the iOS share sheet.</li>
+    <li>When crew members complete self-verification via a shared link, their document and biometric data is processed by the verification API provider directly — the agent's device receives only the verification decision and extracted data.</li>
 </ul>
 
 <h2>7. Your Rights</h2>
@@ -82,19 +92,24 @@ Contact: <a href="https://seapay.me/contact/">https://seapay.me/contact/</a></p>
     <li>API keys are stored in the iOS Keychain with <code>kSecAttrAccessibleWhenUnlockedThisDeviceOnly</code> protection.</li>
     <li>All network communication uses HTTPS/TLS encryption.</li>
     <li>Document images are stored in the app's sandboxed file system, inaccessible to other apps.</li>
+    <li>PDF reports include SHA-256 integrity hashes for tamper detection.</li>
+    <li>On-device OCR processing (Certificate of Registry scanning) does not transmit data externally.</li>
     <li>No analytics, crash reporting, or tracking SDKs are included in the App.</li>
 </ul>
 
 <h2>9. Children's Privacy</h2>
 <p>The App is not intended for use by individuals under the age of 18. We do not knowingly collect personal data from children.</p>
 
-<h2>10. Changes to This Policy</h2>
+<h2>10. International Data Transfers</h2>
+<p>When identity documents are submitted for verification, data may be transferred to the verification API provider's servers, which may be located outside the United Kingdom or European Economic Area. Such transfers are made in accordance with applicable data protection legislation and the API provider's data processing terms.</p>
+
+<h2>11. Changes to This Policy</h2>
 <p>We may update this privacy policy from time to time. Changes will be reflected in the "Last updated" date above. Continued use of the App after changes constitutes acceptance of the revised policy.</p>
 
 <div class="contact">
     <h2 style="margin-top: 0;">Contact</h2>
     <p>For privacy-related inquiries:<br>
-    <strong>Seapay Ltd.</strong><br>
+    <strong>Nave Magna Ltd.</strong> (trading as SeaPay)<br>
     Website: <a href="https://seapay.me">https://seapay.me</a><br>
     Contact: <a href="https://seapay.me/contact/">https://seapay.me/contact/</a><br>
     ICO Registration: ZB626725</p>

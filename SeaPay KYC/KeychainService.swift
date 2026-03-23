@@ -15,6 +15,7 @@ enum KeychainService: Sendable {
         case authToken
         case refreshToken
         case diditAPIKey
+        case claudeAPIKey
         case workflowID
         case diditAccessToken
         case diditTokenExpiry

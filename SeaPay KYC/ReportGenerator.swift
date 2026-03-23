@@ -266,6 +266,27 @@ enum ReportGenerator {
             // Notes
             if let n = check.agentNotes, !n.isEmpty { y = fitC(y, 40, ctx, &pn, ref, edgeColor); y = secT("Officer Observations", at: y, ctx: ctx, pn: &pn, ref: ref); y = para(n, y); y += 12 }
 
+            // Document Portfolio
+            if let docs = check.documents, !docs.isEmpty {
+                y = fitC(y, 60, ctx, &pn, ref, edgeColor)
+                y = secT("Document Portfolio", at: y, ctx: ctx, pn: &pn, ref: ref)
+                let dfmt = DateFormatter(); dfmt.dateFormat = "dd MMM yyyy"
+                var da = true
+                for doc in docs.sorted(by: { $0.type.displayName < $1.type.displayName }) {
+                    y = fitC(y, 16, ctx, &pn, ref, edgeColor)
+                    let expStr: String
+                    if let exp = doc.expiryDate {
+                        expStr = dfmt.string(from: exp) + (exp < Date() ? " (EXPIRED)" : "")
+                    } else { expStr = "No expiry" }
+                    let sc: UIColor = doc.status == .valid ? sG : doc.status == .expired ? sR : doc.status == .expiringSoon ? sA : mid
+                    sc.setFill(); UIRectFill(CGRect(x: L, y: y + 2, width: 3, height: 10))
+                    txt(doc.type.displayName, pt(L + 8, y), .systemFont(ofSize: 8, weight: .medium), dark)
+                    txtR(expStr, y, .systemFont(ofSize: 7), sc)
+                    y += 14; da.toggle()
+                }
+                y += 12
+            }
+
             // Chain of Custody
             y = fitC(y, 80, ctx, &pn, ref, edgeColor); y = secT("Chain of Custody", at: y, ctx: ctx, pn: &pn, ref: ref)
             var ca = true
@@ -517,4 +538,335 @@ enum ReportGenerator {
     private static func nameSim(_ a: String, _ b: String) -> Bool { let wa = Set(a.lowercased().split(separator: " ").map(String.init)); let wb = Set(b.lowercased().split(separator: " ").map(String.init)); return Double(wa.intersection(wb).count) / Double(max(wa.count, wb.count, 1)) >= 0.5 }
     private static func fD(_ s: String) -> String { let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; guard let d = f.date(from: s) else { return s }; return d.formatted(date: .long, time: .omitted) }
     private static func isExp(_ s: String) -> Bool { let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; return f.date(from: s).map { $0 < Date() } ?? false }
+
+    // ═══════════════════════════════════════════
+    // MARK: - Compliance Packet Cover Sheet
+    // ═══════════════════════════════════════════
+
+    static func generateCoverSheet(vesselName: String, imoNumber: String, flagState: String, checks: [KYCCheck]) -> Data {
+        let renderer = UIGraphicsPDFRenderer(bounds: pg)
+        return renderer.pdfData { ctx in
+            ctx.beginPage()
+
+            // Header bar
+            black.setFill(); UIRectFill(CGRect(x: 0, y: 0, width: pg.width, height: 90))
+            txt("OceanCheck", pt(L, 22), BrandFont.uiFont(size: 24), white)
+            txt("COMPLIANCE PACKET", pt(L, 54), .systemFont(ofSize: 8.5, weight: .bold), UIColor(white: 0.5, alpha: 1))
+            txtR("CONFIDENTIAL", 30, .systemFont(ofSize: 7, weight: .bold), UIColor(white: 0.4, alpha: 1))
+            txtR(Date().formatted(date: .long, time: .omitted), 50, .systemFont(ofSize: 7), UIColor(white: 0.4, alpha: 1))
+
+            var y: CGFloat = 110
+
+            // Vessel name
+            txt(vesselName.uppercased(), pt(L, y), .systemFont(ofSize: 24, weight: .bold), black)
+            y += 34
+            if !imoNumber.isEmpty { txt("IMO \(imoNumber)", pt(L, y), .systemFont(ofSize: 11), mid); y += 16 }
+            if !flagState.isEmpty { txt("Flag State: \(flagState)", pt(L, y), .systemFont(ofSize: 11), mid); y += 16 }
+            y += 16
+
+            // Split checks into crew vs compliance
+            let crew = checks.filter { $0.entityType.category == .crew }
+            let compliance = checks.filter { $0.entityType.category != .crew }
+
+            // Summary stats
+            let crewPassed = crew.filter { $0.status == .passed }.count
+            let compPassed = compliance.filter { $0.status == .passed }.count
+
+            txt("VERIFICATION SUMMARY", pt(L, y), .systemFont(ofSize: 9, weight: .bold), dark); y += 20
+
+            let cols: [(String, String, UIColor)] = [
+                ("\(crew.count)", "Crew", black),
+                ("\(crewPassed)", "Cleared", sG),
+                ("\(compliance.count)", "Compliance", black),
+                ("\(compPassed)", "Verified", sG)
+            ]
+            let colW: CGFloat = W / CGFloat(cols.count)
+            for (i, col) in cols.enumerated() {
+                let x = L + CGFloat(i) * colW
+                txt(col.0, pt(x, y), .systemFont(ofSize: 28, weight: .bold), col.2)
+                txt(col.1, pt(x, y + 32), .systemFont(ofSize: 9), mid)
+            }
+            y += 60
+
+            // Divider
+            ruleC.setFill(); UIRectFill(CGRect(x: L, y: y, width: W, height: 0.5)); y += 16
+
+            // Crew roster
+            txt("CREW ROSTER", pt(L, y), .systemFont(ofSize: 9, weight: .bold), dark); y += 18
+
+            for check in crew {
+                if y > pg.height - 60 { ctx.beginPage(); y = 48 }
+                let statusColor = sc(check.status)
+                statusColor.setFill(); UIRectFill(CGRect(x: L, y: y + 2, width: 4, height: 12))
+                txt(check.displayName, pt(L + 12, y), .systemFont(ofSize: 10, weight: .medium), dark)
+                let statusText = check.status == .passed ? "Clear" : check.status == .failed ? "Flagged" : "Pending"
+                txtR(statusText, y, .systemFont(ofSize: 9, weight: .semibold), statusColor)
+                let subtitle = [check.crewRank?.rawValue, check.documentType?.replacingOccurrences(of: "_", with: " ").capitalized].compactMap { $0 }.joined(separator: " \u{2022} ")
+                if !subtitle.isEmpty { txt(subtitle, pt(L + 12, y + 13), .systemFont(ofSize: 8), mid) }
+                y += 28
+            }
+
+            // UBO & Compliance section
+            if !compliance.isEmpty {
+                y += 8
+                if y > pg.height - 60 { ctx.beginPage(); y = 48 }
+                ruleC.setFill(); UIRectFill(CGRect(x: L, y: y, width: W, height: 0.5)); y += 16
+                txt("BENEFICIAL OWNERS & COMPLIANCE", pt(L, y), .systemFont(ofSize: 9, weight: .bold), dark); y += 18
+
+                for check in compliance {
+                    if y > pg.height - 60 { ctx.beginPage(); y = 48 }
+                    let statusColor = sc(check.status)
+                    statusColor.setFill(); UIRectFill(CGRect(x: L, y: y + 2, width: 4, height: 12))
+                    txt(check.displayName, pt(L + 12, y), .systemFont(ofSize: 10, weight: .medium), dark)
+                    let statusText = check.status == .passed ? "Verified" : check.status == .failed ? "Failed" : "Pending"
+                    txtR(statusText, y, .systemFont(ofSize: 9, weight: .semibold), statusColor)
+                    let role = check.entityType.rawValue
+                    let pct = check.ownershipPercent.map { " \u{2022} \(String(format: "%.0f", $0))%" } ?? ""
+                    txt("\(role)\(pct)", pt(L + 12, y + 13), .systemFont(ofSize: 8), mid)
+                    y += 28
+                }
+            }
+
+            // Footer
+            y = pg.height - 50
+            ruleC.setFill(); UIRectFill(CGRect(x: L, y: y, width: W, height: 0.5))
+            txt("Generated by OceanCheck on \(Date().formatted(date: .long, time: .shortened))", pt(L, y + 8), .systemFont(ofSize: 7), light)
+            txt("This document is confidential and intended for compliance purposes only.", pt(L, y + 18), .systemFont(ofSize: 6.5), light)
+        }
+    }
+
+    // ═══════════════════════════════════════════
+    // MARK: - IMO Crew List PDF (FAL Form 5)
+    // ═══════════════════════════════════════════
+
+    static func generateCrewListPDF(vessel: Vessel, checks: [KYCCheck]) -> Data {
+        let seafarers = checks.filter { $0.entityType.category == .crew }
+        let dateFmt = DateFormatter(); dateFmt.dateFormat = "dd MMM yyyy"
+
+        let pdfInfo: [String: Any] = [
+            kCGPDFContextTitle as String: "Crew List — \(vessel.name)",
+            kCGPDFContextAuthor as String: "OceanCheck / SeaPay",
+            kCGPDFContextCreator as String: "OceanCheck v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")"
+        ]
+        let fmt = UIGraphicsPDFRendererFormat(); fmt.documentInfo = pdfInfo
+        let renderer = UIGraphicsPDFRenderer(bounds: pg, format: fmt)
+
+        return renderer.pdfData { ctx in
+            var pn = 0
+
+            ctx.beginPage(); pn += 1; watermark()
+
+            // ── Header bar ──
+            black.setFill(); UIRectFill(CGRect(x: 0, y: 0, width: pg.width, height: 90))
+            txt("OceanCheck", pt(L, 22), BrandFont.uiFont(size: 24), white)
+            txt("IMO CREW LIST — FAL FORM 5", pt(L, 54), .systemFont(ofSize: 8.5, weight: .bold), UIColor(white: 0.5, alpha: 1))
+            txtR(Date().formatted(date: .long, time: .omitted), 30, .systemFont(ofSize: 7), UIColor(white: 0.4, alpha: 1))
+
+            var y: CGFloat = 108
+
+            // ── Vessel details ──
+            txt(vessel.name.uppercased(), pt(L, y), .systemFont(ofSize: 20, weight: .bold), black); y += 28
+
+            let colW: CGFloat = (W - 20) / 2
+            var ly = y, ry = y
+            func lRow(_ label: String, _ val: String) { txt(label, pt(L, ly), .systemFont(ofSize: 7, weight: .bold), mid); txt(val, pt(L + 70, ly), .systemFont(ofSize: 8), dark); ly += 14 }
+            func rRow(_ label: String, _ val: String) { let rx = L + colW + 20; txt(label, pt(rx, ry), .systemFont(ofSize: 7, weight: .bold), mid); txt(val, pt(rx + 70, ry), .systemFont(ofSize: 8), dark); ry += 14 }
+
+            lRow("IMO Number", vessel.imoNumber.isEmpty ? "—" : vessel.imoNumber)
+            rRow("Call Sign", vessel.callSign.isEmpty ? "—" : vessel.callSign)
+            lRow("Flag State", vessel.flagState.isEmpty ? "—" : vessel.flagState)
+            rRow("Port of Registry", vessel.portOfRegistry.isEmpty ? "—" : vessel.portOfRegistry)
+            lRow("Vessel Type", vessel.vesselType?.rawValue ?? "—")
+            rRow("Gross Tonnage", vessel.grossTonnage.isEmpty ? "—" : vessel.grossTonnage)
+
+            y = max(ly, ry) + 12
+            ruleC.setFill(); UIRectFill(CGRect(x: L, y: y, width: W, height: 0.5)); y += 12
+
+            // ── Table header ──
+            let cols: [(String, CGFloat)] = [
+                ("No.", 24), ("Family Name", 80), ("Given Names", 72), ("Rank", 60),
+                ("Nationality", 48), ("DOB", 56), ("Document No.", 64), ("Expiry", 56)
+            ]
+            var hx = L
+            bgAlt.setFill(); UIRectFill(CGRect(x: L, y: y - 2, width: W, height: 16))
+            for (label, width) in cols {
+                txt(label, pt(hx, y), .systemFont(ofSize: 6.5, weight: .bold), mid)
+                hx += width
+            }
+            y += 16
+
+            // ── Crew rows ──
+            for (i, check) in seafarers.enumerated() {
+                y = fitC(y, 16, ctx, &pn, "", black)
+                if pn > 1 && y < 60 { // re-draw header on new page
+                    var nhx = L
+                    bgAlt.setFill(); UIRectFill(CGRect(x: L, y: y - 2, width: W, height: 16))
+                    for (label, width) in cols { txt(label, pt(nhx, y), .systemFont(ofSize: 6.5, weight: .bold), mid); nhx += width }
+                    y += 16
+                }
+
+                let nameParts = (check.extractedName ?? check.customerName).split(separator: " ", maxSplits: 1)
+                let family = nameParts.count > 1 ? String(nameParts.last!) : String(nameParts.first ?? "")
+                let given = nameParts.count > 1 ? String(nameParts.first!) : ""
+                let passport = (check.documents ?? []).first(where: { $0.type == .passport && !$0.isArchived })
+
+                // Alternating row background
+                if i % 2 == 0 { bgAlt.setFill(); UIRectFill(CGRect(x: L, y: y - 2, width: W, height: 14)) }
+
+                var cx = L
+                let font = UIFont.systemFont(ofSize: 7.5)
+                let vals: [String] = [
+                    "\(i + 1)",
+                    family,
+                    given,
+                    check.crewRank?.rawValue ?? "—",
+                    check.nationality ?? "—",
+                    check.dateOfBirth ?? "—",
+                    check.documentNumber ?? passport?.documentNumber ?? "—",
+                    check.expiryDate ?? (passport?.expiryDate.map { dateFmt.string(from: $0) } ?? "—")
+                ]
+                for (vi, (_, width)) in cols.enumerated() {
+                    let val = vi < vals.count ? vals[vi] : ""
+                    txt(val, pt(cx, y), font, dark)
+                    cx += width
+                }
+                y += 14
+            }
+
+            // ── Summary ──
+            y += 10
+            ruleC.setFill(); UIRectFill(CGRect(x: L, y: y, width: W, height: 0.5)); y += 12
+            txt("Total crew on board: \(seafarers.count)", pt(L, y), .systemFont(ofSize: 9, weight: .bold), dark); y += 20
+            txt("Master's signature: ____________________________", pt(L, y), .systemFont(ofSize: 8), mid); y += 14
+            txt("Date: \(Date().formatted(date: .long, time: .omitted))", pt(L, y), .systemFont(ofSize: 8), mid)
+
+            // ── Footer ──
+            let fy = pg.height - 50
+            ruleC.setFill(); UIRectFill(CGRect(x: L, y: fy, width: W, height: 0.5))
+            txt("Generated by OceanCheck on \(Date().formatted(date: .long, time: .shortened))", pt(L, fy + 8), .systemFont(ofSize: 7), light)
+            txt("IMO FAL Form 5 — Crew List. This document is generated for operational use.", pt(L, fy + 18), .systemFont(ofSize: 6.5), light)
+        }
+    }
+
+    // ═══════════════════════════════════════════
+    // MARK: - UBO Compliance Report
+    // ═══════════════════════════════════════════
+
+    static func generateUBOReport(vessel: Vessel, structure: OwnershipStructure, checks: [KYCCheck]) -> Data {
+        let ref = "UBO-\(String(vessel.id.prefix(8)).uppercased())"
+        var pn = 0
+        let allVerified = structure.shareholders.filter(\.isUBO).allSatisfy { sh in
+            guard let cid = sh.checkId, let c = checks.first(where: { $0.id == cid }) else { return false }
+            return c.status == .passed
+        }
+        let edgeColor = allVerified ? sG : sA
+
+        let renderer = UIGraphicsPDFRenderer(bounds: pg)
+        return renderer.pdfData { ctx in
+            ctx.beginPage(); pn += 1; watermark(); edge(edgeColor)
+
+            // Header
+            black.setFill(); UIRectFill(CGRect(x: 0, y: 0, width: pg.width, height: 90))
+            txt("OceanCheck", pt(L, 22), BrandFont.uiFont(size: 24), white)
+            txt("UBO COMPLIANCE REPORT", pt(L, 54), .systemFont(ofSize: 8.5, weight: .bold), UIColor(white: 0.5, alpha: 1))
+            txtR("CONFIDENTIAL", 30, .systemFont(ofSize: 7, weight: .bold), UIColor(white: 0.4, alpha: 1))
+            txtR(ref, 44, .monospacedSystemFont(ofSize: 7, weight: .regular), UIColor(white: 0.4, alpha: 1))
+            txtR(Date().formatted(date: .long, time: .omitted), 58, .systemFont(ofSize: 7), UIColor(white: 0.4, alpha: 1))
+
+            var y: CGFloat = 108
+
+            // Vessel
+            txt(vessel.name.uppercased(), pt(L, y), .systemFont(ofSize: 20, weight: .bold), black); y += 28
+            var la = true
+            func row(_ l: String, _ v: String) { y = tR(l, v, y, la); la.toggle() }
+            if !vessel.imoNumber.isEmpty { row("IMO Number", vessel.imoNumber) }
+            if !vessel.flagState.isEmpty { row("Flag State", vessel.flagState) }
+            if let vt = vessel.vesselType { row("Vessel Type", vt.rawValue) }
+            y += 12
+
+            // Ownership type
+            y = secT("Ownership Structure", at: y, ctx: ctx, pn: &pn, ref: ref)
+            la = true
+            row("Type", structure.isDirectOwnership ? "Direct Individual Ownership" : "Corporate / SPV")
+            if let spv = structure.spv {
+                row("SPV Name", spv.name)
+                row("Jurisdiction", spv.jurisdiction)
+                row("Registration", spv.registrationNumber)
+                if !spv.incorporationDate.isEmpty { row("Incorporated", spv.incorporationDate) }
+            }
+            y += 12
+
+            // UBOs
+            y = fitC(y, 30, ctx, &pn, ref, edgeColor)
+            y = secT("Ultimate Beneficial Owners (>25%)", at: y, ctx: ctx, pn: &pn, ref: ref)
+            for sh in structure.shareholders where sh.isUBO {
+                y = fitC(y, 20, ctx, &pn, ref, edgeColor)
+                let check = sh.checkId.flatMap { cid in checks.first { $0.id == cid } }
+                let status = check?.status ?? .pending
+                let sColor = sc(status)
+                sColor.setFill(); UIRectFill(CGRect(x: L, y: y + 2, width: 4, height: 12))
+                txt(sh.name, pt(L + 10, y), .systemFont(ofSize: 9, weight: .medium), dark)
+                txt("\(String(format: "%.0f", sh.ownershipPercent))%", pt(L + 200, y), .systemFont(ofSize: 9), mid)
+                let statusText = status == .passed ? "VERIFIED" : status == .failed ? "FAILED" : "PENDING"
+                txtR(statusText, y, .systemFont(ofSize: 8, weight: .bold), sColor)
+                y += 16
+
+                // AML status if verified
+                if let check, check.amlStatus != nil {
+                    txt("  AML: \(check.amlStatus ?? "—")", pt(L + 10, y), .systemFont(ofSize: 7.5), mid)
+                    if let score = check.amlScore { txt("Score: \(score)", pt(L + 120, y), .systemFont(ofSize: 7.5), mid) }
+                    y += 12
+                }
+            }
+            y += 8
+
+            // Other shareholders
+            let others = structure.shareholders.filter { !$0.isUBO }
+            if !others.isEmpty {
+                y = fitC(y, 20, ctx, &pn, ref, edgeColor)
+                txt("Other shareholders (below 25%)", pt(L, y), .systemFont(ofSize: 7.5, weight: .bold), mid); y += 14
+                for sh in others {
+                    y = fitC(y, 14, ctx, &pn, ref, edgeColor)
+                    txt("\(sh.name) — \(String(format: "%.0f", sh.ownershipPercent))%\(sh.isCompany ? " (corporate)" : "")", pt(L + 10, y), .systemFont(ofSize: 7.5), mid)
+                    y += 12
+                }
+            }
+            y += 12
+
+            // Directors
+            y = fitC(y, 30, ctx, &pn, ref, edgeColor)
+            y = secT("Directors / Officers", at: y, ctx: ctx, pn: &pn, ref: ref)
+            for dir in structure.directors {
+                y = fitC(y, 16, ctx, &pn, ref, edgeColor)
+                let check = dir.checkId.flatMap { cid in checks.first { $0.id == cid } }
+                let status = check?.status ?? .pending
+                let sColor = sc(status)
+                sColor.setFill(); UIRectFill(CGRect(x: L, y: y + 2, width: 4, height: 12))
+                txt(dir.name, pt(L + 10, y), .systemFont(ofSize: 9, weight: .medium), dark)
+                let statusText = status == .passed ? "VERIFIED" : "PENDING"
+                txtR(statusText, y, .systemFont(ofSize: 8, weight: .bold), sColor)
+                y += 16
+            }
+            y += 16
+
+            // Verdict
+            y = fitC(y, 50, ctx, &pn, ref, edgeColor)
+            let verdict = allVerified ? "COMPLIANT" : "INCOMPLETE"
+            let vc = allVerified ? sG : sA
+            let vR = CGRect(x: L, y: y, width: W, height: 40)
+            vc.withAlphaComponent(0.06).setFill(); UIBezierPath(roundedRect: vR, cornerRadius: 4).fill()
+            black.setFill(); UIRectFill(CGRect(x: L, y: y, width: 4, height: 40))
+            vc.setFill(); UIRectFill(CGRect(x: L + 4, y: y, width: 2, height: 40))
+            txt(verdict, pt(L + 16, y + 6), .systemFont(ofSize: 16, weight: .bold), vc)
+            let verdictSub = allVerified ? "All beneficial owners verified and screened" : "Verification incomplete — action required"
+            txt(verdictSub, pt(L + 16, y + 24), .systemFont(ofSize: 8), mid)
+            y += 54
+
+            // Footer
+            let fy = pg.height - 50
+            ruleC.setFill(); UIRectFill(CGRect(x: L, y: fy, width: W, height: 0.5))
+            txt("Generated by OceanCheck on \(Date().formatted(date: .long, time: .shortened))", pt(L, fy + 8), .systemFont(ofSize: 7), light)
+            txt("UBO Compliance Report \(ref). This document is confidential.", pt(L, fy + 18), .systemFont(ofSize: 6.5), light)
+        }
+    }
 }

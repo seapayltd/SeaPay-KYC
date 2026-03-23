@@ -1,13 +1,14 @@
-# App Store Listing — OceanCheck
+# App Store Listing — OceanCheck v2.0
 
 ## App Name
 OceanCheck
 
 ## Subtitle
-Maritime Identity & Compliance
+Maritime KYC & Document Compliance
 
 ## Category
-Business
+Primary: Business
+Secondary: Productivity
 
 ## Price
 Free
@@ -21,60 +22,139 @@ https://seapay.me/contact/
 ## Marketing URL
 https://seapay.me
 
+## Content Rights
+Does not contain, show, or access third-party content.
+
+## Age Rating
+All responses: None (no objectionable content)
+
 ---
 
 ## Description
 
-OceanCheck is a professional identity verification and compliance screening tool built for the maritime industry.
+OceanCheck is a professional KYC, identity verification, and document compliance platform built for the maritime industry.
 
-Designed for vessel operators, fleet managers, and maritime HR teams, it enables rapid KYC checks on crew members directly from your iPhone or iPad — no desktop required.
+Designed for compliance officers, vessel operators, fleet managers, and manning agencies, it replaces spreadsheets and paper checklists with a single app that handles crew verification, document tracking, and compliance reporting — directly from your iPhone or iPad.
 
-HOW IT WORKS:
-1. Enter the crew member's name
-2. Select the document type (Passport, ID Card, Driver License, Residence Permit)
-3. Choose investigation depth (ID only, ID + AML, or full check with address verification)
-4. Scan or upload documents using camera, photo library, or file picker (supports PDF, JPEG, PNG)
-5. Get instant results with identity extraction, compliance screening, and risk assessment
+VESSEL MANAGEMENT
+- Organize crew by vessel with full document tracking
+- Add vessels by scanning the Certificate of Registry (automatic OCR extraction from PDF or photo)
+- Support for all vessel types: cargo, tanker (oil/chemical/gas), passenger, megayacht (private and charter), offshore
+- Track vessel certificates: Class, SMC, ISM DOC, IOPP, Load Line, and more
+- One-tap compliance packet export (PDF with cover sheet + all crew reports)
 
-KEY FEATURES:
-- Document scanning with automatic data extraction (OCR) supporting 4000+ document types across 220+ countries
-- Anti-Money Laundering (AML) screening against 1300+ global sanctions, PEP, and watchlist databases
-- Adverse media screening with sentiment analysis
-- Proof of address verification from utility bills, bank statements, and official letters
-- Optional continuous monitoring for ongoing risk alerts
-- Professional PDF compliance reports in corporate black & white design
-- Agent review workflow: approve, flag, or decline with audit trail
-- Secure API key authentication — no data stored on external servers
-- Works offline for document capture, processes when connected
+CREW VERIFICATION
+- Identity verification with automatic document data extraction across 4000+ document types
+- AML/sanctions screening against 1300+ global watchlists, PEP databases, and adverse media
+- Proof of address verification
+- Remote self-verification: send a link, crew verify themselves from any device
+- Batch invite: onboard an entire crew roster in one step
+- Profile photos auto-extracted from passport scans
 
-BUILT FOR MARITIME COMPLIANCE:
-OceanCheck helps maritime companies satisfy MLC 2006, ISM Code, and flag state requirements for crew documentation and due diligence.
+MARITIME DOCUMENT PORTFOLIO
+- 30+ maritime document types: STCW certificates, COCs, medical (ENG1/PEME), flag endorsements, tanker training, megayacht qualifications, and more
+- Automatic document requirements based on crew rank, vessel type, and flag state
+- Covers 10 flag registries: Marshall Islands, Cayman Islands, UK (Red Ensign), Malta, Panama, Bahamas, Singapore, Liberia, Italy, Greece
+- Quick-add: camera capture with expiry date tracking
+- Document renewal with version history
+- Expiry intelligence: alerts for documents expiring within 90 days
 
-All identity verification and screening is performed via enterprise-grade APIs. Documents are stored locally on your device and never uploaded to third-party storage.
+ENTITY VERIFICATION (beyond crew)
+- Verify ship owners, UBOs (Ultimate Beneficial Owners), management companies, and directors/officers
+- Corporate document requirements: Articles of Association, Certificate of Incorporation, UBO Declaration, and more
+- Ownership percentage tracking for beneficial owners
+- Full AML screening for all entity types
+
+COMPLIANCE REPORTING
+- Professional PDF reports with integrity hash, QR verification code, watermark, and chain of custody
+- Document portfolio summary in every report
+- CSV export for management companies and flag state authorities
+- Vessel compliance packets: one PDF combining cover sheet + all crew reports
+
+TRANSFER & MANAGEMENT
+- Transfer crew between vessels with full document history
+- Assign unassigned crew to vessels
+- Export/import backup for device migration and disaster recovery
+- Push notifications for document expiry (90, 30, 7, and 1 day warnings)
+
+SECURITY & PRIVACY
+- All data stored locally on device — no cloud storage
+- API keys in iOS Keychain
+- HTTPS/TLS for all network communication
+- No analytics, tracking, or third-party SDKs
+- Full data reset from Settings
+
+Built to help maritime companies satisfy MLC 2006, ISM Code, STCW Convention, and flag state due diligence requirements.
 
 ---
 
 ## Keywords
-KYC, AML, maritime, compliance, identity, verification, crew, seafarer, screening, sanctions
+KYC,AML,maritime,compliance,crew,seafarer,verification,STCW,documents,sanctions,vessel,megayacht,tanker,screening,identity
 
 ## What's New in This Version
-Initial release. Full KYC verification pipeline with document scanning, AML screening, proof of address, and branded PDF reports.
+v2.0 — Complete rebuild:
+- Vessel management with Certificate of Registry scanning (PDF + photo OCR)
+- Maritime document portfolio with 30+ document types
+- Flag state document requirements engine (10 registries)
+- Entity verification: ship owners, UBOs, management companies
+- Batch crew invite
+- Crew transfer between vessels
+- Document expiry intelligence with push notifications
+- CSV export for management companies
+- Compliance packet export (combined PDF)
+- Backup export/import
+- Redesigned UI following Jony Ive's design principles
 
 ---
 
-## App Store Screenshots Required
+## App Review Notes
 
-### iPhone 6.7" (iPhone 15 Pro Max) — 1290 x 2796
-1. Home screen with name entry and check list
-2. Document type selection step
-3. Investigation depth selection with monitoring toggle
-4. Document upload step showing camera/photos/file options
-5. Results view with ID card, AML risk gauge, and review buttons
+Demo credentials for review:
+- API Key: [provide a test key to Apple]
+- The app requires a valid Didit verification API key to perform identity checks
+- Without a key, the app can still demonstrate: vessel management, document portfolio, crew management, PDF generation, CSV export
+- The app communicates with https://verification.didit.me/v3 for identity verification and AML screening
 
-### iPhone 6.1" (iPhone 15 Pro) — 1179 x 2556
+---
+
+## App Store Screenshots (v2.0)
+
+### iPhone 6.7" (1290 x 2796) — 5 required
+1. Home screen with vessel cards showing crew/document progress
+2. Vessel detail with crew roster, avatars, and document counts
+3. Document portfolio with status indicators (valid/expiring/expired/missing)
+4. Add vessel via Certificate of Registry scan (OCR extraction)
+5. PDF compliance report preview
+
+### iPhone 6.1" (1179 x 2556)
 Same 5 screenshots at this resolution.
 
-### iPad Pro 12.9" — 2048 x 2732
-Same 5 screenshots (app scales via TabletPC support).
+### iPad Pro 12.9" (2048 x 2732)
+Same 5 screenshots.
 
-Note: Take these from the Simulator using Cmd+S or Xcode's screenshot tool.
+---
+
+## App Privacy (for App Store Privacy section)
+
+### Data Linked to You
+- Contact Info: Name (agent name for reports)
+
+### Data Not Linked to You
+- None
+
+### Data Used to Track You
+- None
+
+### Data Types Collected
+| Data Type | Purpose | Linked to Identity |
+|-----------|---------|-------------------|
+| Name | App Functionality | Yes |
+| Photos | App Functionality | No |
+| Location | App Functionality | No |
+| Identifiers (API key) | App Functionality | No |
+
+### Third-Party API
+- Didit (https://didit.me) — identity verification and AML screening
+- Data sent: document images, extracted personal data
+- Data received: verification results, AML screening results
+- No user tracking or analytics

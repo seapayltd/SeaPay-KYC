@@ -13,6 +13,7 @@ enum AppMode: String { case agent, subject }
 class AppState {
     var isConfigured: Bool
     var showSubjectFlow = false
+    var incomingDeepLink: URL?
 
     init() { isConfigured = AppConfiguration.isConfigured }
 
@@ -26,7 +27,10 @@ struct SeaPay_KYCApp: App {
     @State private var vm = KYCViewModel()
     @State private var setupStep = 0 // 0 = api key, 1 = name
 
-    init() { BrandFont.registerIfNeeded() }
+    init() {
+        BrandFont.registerIfNeeded()
+        NotificationService.shared.requestPermission()
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -43,6 +47,7 @@ struct SeaPay_KYCApp: App {
             }
             .onOpenURL { url in
                 if url.scheme == AppConfiguration.urlScheme {
+                    appState.incomingDeepLink = url
                     appState.showSubjectFlow = true
                 }
             }

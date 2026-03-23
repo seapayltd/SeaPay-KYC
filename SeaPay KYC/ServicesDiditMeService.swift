@@ -256,8 +256,8 @@ actor VerificationAPIService {
         return try JSONDecoder().decode(SessionResponse.self, from: data)
     }
 
-    /// Retrieves decision for a completed session.
-    func getSessionDecision(sessionId: String) async throws -> SessionDecision {
+    /// Retrieves decision for a completed session. Returns decoded + raw JSON.
+    func getSessionDecision(sessionId: String) async throws -> (SessionDecision, Data) {
         let apiKey = try key()
         guard let url = URL(string: "\(baseURL)/session/\(sessionId)/decision/") else { throw AppError.invalidURL }
 
@@ -267,7 +267,8 @@ actor VerificationAPIService {
         request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
 
         let (data, _) = try await network.perform(request)
-        return try JSONDecoder().decode(SessionDecision.self, from: data)
+        let decoded = try JSONDecoder().decode(SessionDecision.self, from: data)
+        return (decoded, data)
     }
 
     // MARK: - File Type Detection

@@ -13,17 +13,93 @@ struct KYCCheck: Identifiable, Codable, Hashable {
 
     let id: String
     var customerId: String
-    let customerName: String
+    var customerName: String
     var agentId: String
     let agentName: String
+
+    /// Display name: uses extracted name from verification, falls back to customerName
+    var displayName: String {
+        if let extracted = extractedName, !extracted.isEmpty { return extracted }
+        if customerName.hasPrefix("Crew ") || customerName == "Pending" { return "Pending verification" }
+        return customerName
+    }
     var checkType: CheckType
     var status: CheckStatus
+    var entityType: EntityType
     let createdAt: Date
     var completedAt: Date?
     var agentNotes: String?
+    var sessionId: String?
+    var hostedVerifyURL: String?
+    var vesselId: String?
+    var crewRank: CrewRank?
+    var documents: [CrewDocument]?
+    var profilePhoto: String?
     var documentImagePaths: [String]?
     var latitude: Double?
     var longitude: Double?
+
+    // Corporate fields (for owners, UBOs, management companies)
+    var companyName: String?
+    var registrationNumber: String?
+    var jurisdiction: String?
+    var ownershipPercent: Double?
+
+    enum EntityType: String, Codable, CaseIterable, Identifiable {
+        // Crew (on-board)
+        case seafarer = "Seafarer"
+
+        // Shore-based
+        case dpa = "DPA"
+        case fleetManager = "Fleet Manager"
+        case technicalSuper = "Technical Superintendent"
+        case crewingManager = "Crewing Manager"
+
+        // Ownership & compliance
+        case owner = "Ship Owner"
+        case ubo = "Beneficial Owner (UBO)"
+        case managementCompany = "Management Company"
+        case directorOfficer = "Director / Officer"
+
+        var id: String { rawValue }
+
+        var icon: String {
+            switch self {
+            case .seafarer: return "person.text.rectangle"
+            case .dpa: return "person.badge.clock"
+            case .fleetManager: return "person.crop.rectangle.stack"
+            case .technicalSuper: return "wrench.and.screwdriver"
+            case .crewingManager: return "person.2"
+            case .owner: return "building.2"
+            case .ubo: return "person.badge.key"
+            case .managementCompany: return "building"
+            case .directorOfficer: return "person.badge.shield.checkmark"
+            }
+        }
+
+        var category: PersonCategory {
+            switch self {
+            case .seafarer: return .crew
+            case .dpa, .fleetManager, .technicalSuper, .crewingManager: return .shoreBased
+            case .owner, .ubo, .managementCompany, .directorOfficer: return .ownership
+            }
+        }
+
+        var isIndividual: Bool { self != .managementCompany }
+        var isCorporate: Bool { self == .managementCompany }
+        var needsOwnership: Bool { self == .ubo }
+
+        /// Grouped for UI pickers
+        static var crewTypes: [EntityType] { [.seafarer] }
+        static var shoreBasedTypes: [EntityType] { [.dpa, .fleetManager, .technicalSuper, .crewingManager] }
+        static var ownershipTypes: [EntityType] { [.owner, .ubo, .managementCompany, .directorOfficer] }
+    }
+
+    enum PersonCategory: String, Codable {
+        case crew = "Crew"
+        case shoreBased = "Shore-Based"
+        case ownership = "Ownership & Compliance"
+    }
 
     // Agent-selected options
     var expectedDocType: IDDocType?
@@ -167,9 +243,10 @@ struct KYCCheck: Identifiable, Codable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, customerId, customerName, agentId, agentName, checkType, status
-        case createdAt, completedAt, agentNotes, documentImagePaths
+        case id, customerId, customerName, agentId, agentName, checkType, status, entityType
+        case createdAt, completedAt, agentNotes, sessionId, hostedVerifyURL, vesselId, crewRank, documents, profilePhoto, documentImagePaths
         case latitude, longitude
+        case companyName, registrationNumber, jurisdiction, ownershipPercent
         case expectedDocType, investigationDepth
         case extractedName, documentType, documentNumber, dateOfBirth, expiryDate, nationality, idWarnings
         case amlStatus, amlScore, amlHitCount, amlMonitoring
