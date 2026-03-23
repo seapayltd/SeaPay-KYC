@@ -108,6 +108,23 @@ struct SecondaryButtonStyle: ButtonStyle {
     }
 }
 
+// MARK: - iPad Content Width
+
+struct ContentWidth: ViewModifier {
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    func body(content: Content) -> some View {
+        if sizeClass == .regular {
+            content.frame(maxWidth: 680).frame(maxWidth: .infinity)
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    func iPadOptimized() -> some View { modifier(ContentWidth()) }
+}
+
 // MARK: - Card (clean, no shadow noise)
 
 struct CardView<Content: View>: View {

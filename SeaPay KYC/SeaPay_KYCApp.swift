@@ -32,6 +32,14 @@ struct SeaPay_KYCApp: App {
         NotificationService.shared.requestPermission()
     }
 
+    private var preferredColorScheme: ColorScheme? {
+        switch UserDefaults.standard.integer(forKey: "colorSchemePreference") {
+        case 1: return .light
+        case 2: return .dark
+        default: return nil
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             Group {
@@ -42,6 +50,7 @@ struct SeaPay_KYCApp: App {
                 }
             }
             .animation(.smooth(duration: 0.35), value: appState.isConfigured)
+            .preferredColorScheme(preferredColorScheme)
             .fullScreenCover(isPresented: $appState.showSubjectFlow) {
                 SubjectFlowView(appState: appState)
             }

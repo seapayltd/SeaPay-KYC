@@ -56,13 +56,34 @@ struct SequentialSetupView: View {
             Text("OceanCheck").font(BrandFont.brand(32))
             Text("Maritime Identity & Compliance").font(Typo.meta).foregroundStyle(.secondary)
 
-            Spacer().frame(height: 32)
+            Spacer().frame(height: 24)
+
+            // Feature highlights
+            VStack(alignment: .leading, spacing: 14) {
+                featureRow("ferry", "Vessel Management", "Add vessels, scan Certificates of Registry")
+                featureRow("person.text.rectangle", "Crew Verification", "KYC checks, document tracking, AML screening")
+                featureRow("person.badge.key", "UBO Compliance", "Beneficial ownership verification")
+                featureRow("doc.text", "Reports & Exports", "PDF reports, crew lists, CSV exports")
+            }
+            .padding(.horizontal, 40)
+
+            Spacer().frame(height: 24)
 
             Button { withAnimation { step = 1 } } label: {
                 Text("Get Started")
             }
             .buttonStyle(PrimaryButtonStyle())
             .padding(.horizontal, 48)
+        }
+    }
+
+    private func featureRow(_ icon: String, _ title: String, _ desc: String) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon).font(.system(size: 20)).foregroundStyle(.primary.opacity(0.4)).frame(width: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(Typo.body).fontWeight(.medium)
+                Text(desc).font(Typo.meta).foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -152,6 +173,7 @@ struct SettingsSheet: View {
     @State private var showReset = false
     @State private var showExportBackup = false
     @State private var showImportBackup = false
+    @State private var colorSchemePreference = UserDefaults.standard.integer(forKey: "colorSchemePreference")
     @State private var backupURL: URL?
     @State private var backupMessage = ""
 
@@ -205,6 +227,25 @@ struct SettingsSheet: View {
                             TextField("For invitations", text: $workflowID)
                                 .textInputAutocapitalization(.never).autocorrectionDisabled()
                                 .font(Typo.body).multilineTextAlignment(.trailing)
+                        }
+                    }
+
+                    // Appearance
+                    settingsSection("Appearance") {
+                        Picker(selection: $colorSchemePreference) {
+                            Text("System").tag(0)
+                            Text("Light").tag(1)
+                            Text("Dark").tag(2)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "circle.lefthalf.filled").font(.system(size: 15)).foregroundStyle(.secondary).frame(width: 24)
+                                Text("Theme").font(Typo.body)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .padding(.horizontal, 16).padding(.vertical, 10)
+                        .onChange(of: colorSchemePreference) { _, val in
+                            UserDefaults.standard.set(val, forKey: "colorSchemePreference")
                         }
                     }
 

@@ -32,6 +32,8 @@ struct SubjectFlowView: View {
     @State private var showCertCamera = false
     @State private var currentCertType: MaritimeDocType?
     @State private var certImage: Data?
+    @State private var showCertShare = false
+    @State private var certShareURLs: [URL] = []
 
     var body: some View {
         NavigationStack {
@@ -264,12 +266,21 @@ struct SubjectFlowView: View {
                 if !capturedCerts.isEmpty {
                     Text("\(capturedCerts.count) certificate\(capturedCerts.count == 1 ? "" : "s") captured").font(Typo.meta).foregroundStyle(Color.clear_)
                 }
-                Button { appState.showSubjectFlow = false } label: {
-                    Text(capturedCerts.isEmpty ? "Skip" : "Done")
+
+                if !capturedCerts.isEmpty {
+                    Button { shareCertificates() } label: { Text("Share with Agent") }
+                        .buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 32)
+
+                    Button { appState.showSubjectFlow = false } label: { Text("Done").font(Typo.meta).foregroundStyle(.secondary) }
+                } else {
+                    Button { appState.showSubjectFlow = false } label: { Text("Skip") }
+                        .buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 32)
                 }
-                .buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 32)
             }
             .padding(.vertical, 12).background(.bar)
+            .sheet(isPresented: $showCertShare) {
+                if !certShareURLs.isEmpty { ActivityView(items: certShareURLs) }
+            }
         }
         .fullScreenCover(isPresented: $showCertCamera) {
             CameraCapture(result: $certImage).ignoresSafeArea()
@@ -280,6 +291,17 @@ struct SubjectFlowView: View {
                 certImage = nil
             }
         }
+    }
+
+    private func shareCertificates() {
+        let tempDir = FileManager.default.temporaryDirectory
+        certShareURLs = capturedCerts.enumerated().compactMap { i, cert in
+            let name = cert.type.displayName.replacingOccurrences(of: " ", with: "_")
+            let url = tempDir.appendingPathComponent("\(name)_\(i).jpg")
+            try? cert.data.write(to: url)
+            return url
+        }
+        showCertShare = true
     }
 
     // ═══════════ ERROR ═══════════
