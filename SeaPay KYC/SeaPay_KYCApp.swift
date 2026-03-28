@@ -294,8 +294,8 @@ struct BiometricLockView: View {
                     .foregroundStyle(.primary.opacity(0.15))
 
                 VStack(spacing: 6) {
-                    Text("OceanCheck Locked").font(BrandFont.brand(24))
-                    Text("Authenticate to access compliance data")
+                    Text(L10n.App.locked).font(BrandFont.brand(24))
+                    Text(L10n.App.unlockPrompt)
                         .font(Typo.meta).foregroundStyle(.secondary)
                         .accessibilityHidden(true)
                 }
@@ -309,7 +309,7 @@ struct BiometricLockView: View {
                     HStack(spacing: 10) {
                         Image(systemName: BiometricService.biometricIcon)
                             .font(.system(size: 16))
-                        Text("Unlock with \(BiometricService.biometricName)")
+                        Text(L10n.Biometric.unlockWith(BiometricService.biometricName))
                             .font(Typo.body).fontWeight(.medium)
                     }
                 }

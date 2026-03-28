@@ -195,8 +195,8 @@ struct StatusBadge: View {
     }
     private var shortLabel: String {
         switch status {
-        case .passed: "Clear"; case .failed: "Flagged"; case .requiresReview: "Review"
-        case .pending: "Pending"; case .inProgress: "Active"; case .incomplete: "Draft"
+        case .passed: L10n.Status.clear; case .failed: L10n.Status.flagged; case .requiresReview: L10n.Status.review
+        case .pending: L10n.Status.pending; case .inProgress: L10n.Status.active; case .incomplete: L10n.Status.draft
         }
     }
 }

@@ -13,6 +13,21 @@ enum EncryptionService {
 
     private static let keychainAccount = "com.seapay.kyc.encryptionKey"
 
+    /// Check if Keychain is accessible (fails in some test sandboxes)
+    static var isKeychainAvailable: Bool {
+        let testKey = "com.seapay.kyc.keychainTest"
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "com.seapay.kyc.test",
+            kSecAttrAccount as String: testKey,
+            kSecValueData as String: Data([0x01]),
+        ]
+        SecItemDelete(query as CFDictionary)
+        let status = SecItemAdd(query as CFDictionary, nil)
+        SecItemDelete(query as CFDictionary)
+        return status == errSecSuccess
+    }
+
     // MARK: - Key Management
 
     /// Retrieve or generate the 256-bit encryption key from Keychain.

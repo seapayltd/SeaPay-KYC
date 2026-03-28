@@ -16,21 +16,27 @@ struct OnboardingView: View {
     private let pages: [(icon: String, title: String, subtitle: String, details: [String])] = [
         (
             "checkmark.shield",
-            "Maritime Compliance\nin Your Pocket",
-            "OceanCheck helps you verify crew, track documents, and manage vessel compliance — all from your iPhone.",
-            ["Identity verification across 4000+ document types", "AML/sanctions screening against 1300+ watchlists", "Maritime document portfolio with expiry tracking"]
+            L10n.Onboarding.page1Title,
+            L10n.Onboarding.page1Sub,
+            [String(localized: "Identity verification across 4000+ document types"),
+             String(localized: "AML/sanctions screening against 1300+ watchlists"),
+             String(localized: "Maritime document portfolio with expiry tracking")]
         ),
         (
             "person.badge.shield.checkmark",
-            "Verify Anyone\nin the Chain",
-            "From seafarers to beneficial owners, OceanCheck covers every entity in the maritime compliance chain.",
-            ["Crew: passport scan + STCW certificates", "Ownership: UBO declaration + KYB verification", "Remote: send a link, they verify themselves"]
+            L10n.Onboarding.page2Title,
+            L10n.Onboarding.page2Sub,
+            [String(localized: "Crew: passport scan + STCW certificates"),
+             String(localized: "Ownership: UBO declaration + KYB verification"),
+             String(localized: "Remote: send a link, they verify themselves")]
         ),
         (
             "key",
-            "What You'll Need",
-            "OceanCheck connects to verification services that require API credentials.",
-            ["Didit API key — for identity & AML verification", "Workflow ID — for remote crew invitations", "Claude API key (optional) — for certificate OCR"]
+            L10n.Onboarding.page3Title,
+            L10n.Onboarding.page3Sub,
+            [String(localized: "Didit API key — for identity & AML verification"),
+             String(localized: "Workflow ID — for remote crew invitations"),
+             String(localized: "Claude API key (optional) — for certificate OCR")]
         )
     ]
 

@@ -25,7 +25,117 @@ struct HomeView: View {
     @State private var tab = 0
     @State private var allFilter = 0 // 0=All, 1=Flagged, 2=Expiring, 3=Pending
 
+    // iPad sidebar
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    @State private var selectedVesselId: String?
+    @State private var sidebarSelection: SidebarItem? = .vessels
+    enum SidebarItem: Hashable { case vessels, people, settings }
+
     var body: some View {
+        if sizeClass == .regular {
+            iPadLayout
+        } else {
+            iPhoneLayout
+        }
+    }
+
+    // MARK: - iPad Split View
+
+    private var iPadLayout: some View {
+        NavigationSplitView {
+            List(selection: $sidebarSelection) {
+                Section {
+                    Label("Vessels", systemImage: "ferry").tag(SidebarItem.vessels)
+                    Label("People", systemImage: "person.3").tag(SidebarItem.people)
+                }
+                Section {
+                    Label("Settings", systemImage: "gearshape").tag(SidebarItem.settings)
+                }
+
+                if !vm.vessels.isEmpty {
+                    Section("Vessels") {
+                        ForEach(vm.vessels) { vessel in
+                            NavigationLink(value: vessel.id) {
+                                HStack(spacing: 10) {
+                                    Image(systemName: vessel.vesselType?.icon ?? "ferry")
+                                        .font(.system(size: 13)).foregroundStyle(.secondary).frame(width: 20)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(vessel.name).font(Typo.body).fontWeight(.medium)
+                                        Text("\(vm.checksForVessel(vessel.id).count) crew").font(Typo.meta).foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("OceanCheck")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Button { showAddVessel = true } label: { Label("Add Vessel", systemImage: "ferry") }
+                        Button { showBatchInvite = true } label: { Label("Batch Invite", systemImage: "person.2.badge.plus") }
+                        Button { showBatchImport = true } label: { Label("Import CSV", systemImage: "square.and.arrow.down") }
+                        if !vm.checks.isEmpty {
+                            Divider()
+                            Button { csvURL = vm.generateCSV(vesselId: nil); if csvURL != nil { showCSVExport = true } } label: { Label("Export CSV", systemImage: "tablecells") }
+                            Button { csvURL = vm.generateXLSX(vesselId: nil); if csvURL != nil { showCSVExport = true } } label: { Label("Export XLSX", systemImage: "doc.richtext") }
+                        }
+                    } label: {
+                        Image(systemName: "plus.circle").font(.system(size: 16))
+                    }
+                }
+            }
+        } detail: {
+            NavigationStack {
+                Group {
+                    switch sidebarSelection {
+                    case .vessels:
+                        iPadVesselContent
+                    case .people:
+                        allChecksList.refreshable { await vm.refreshPendingSessions() }
+                    case .settings:
+                        SettingsSheet(vm: vm, appState: appState)
+                    case .none:
+                        iPadVesselContent
+                    }
+                }
+                .background(Color.surface.ignoresSafeArea())
+            }
+        }
+        .searchable(text: $searchText, placement: .sidebar, prompt: "Search")
+        .sheet(item: $activeCheck) { VerificationSheet(vm: vm, check: $0) }
+        .sheet(item: $inviteCheck) { InviteSheet(vm: vm, check: $0) }
+        .sheet(isPresented: $showAddVessel) { VesselSheet(vm: vm) }
+        .sheet(isPresented: $showBatchInvite) { BatchInviteSheet(vm: vm) }
+        .sheet(isPresented: $showBatchImport) { BatchImportSheet(vm: vm) }
+        .sheet(isPresented: $showCSVExport) { if let url = csvURL { ActivityView(items: [url]) } }
+        .sheet(item: $selectedVesselForAdd) { vessel in
+            AddCrewSheet(vm: vm, vesselId: vessel.id) { check, method in
+                selectedVesselForAdd = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    if method == .invite { inviteCheck = check } else { activeCheck = check }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var iPadVesselContent: some View {
+        if vm.vessels.isEmpty {
+            VStack(spacing: 16) {
+                Image(systemName: "ferry").font(.system(size: 48)).foregroundStyle(.quaternary)
+                Text("No vessels yet").font(Typo.context).foregroundStyle(.secondary)
+                Button { showAddVessel = true } label: { Text("Add Vessel") }.buttonStyle(PrimaryButtonStyle()).frame(width: 200)
+            }
+        } else {
+            vesselsList.refreshable { await vm.refreshPendingSessions() }
+        }
+    }
+
+    // MARK: - iPhone Stack
+
+    private var iPhoneLayout: some View {
         NavigationStack {
             ZStack(alignment: .bottomTrailing) {
                 VStack(spacing: 0) {
@@ -78,6 +188,7 @@ struct HomeView: View {
                         Button { showBatchImport = true } label: { Label("Import Crew CSV", systemImage: "square.and.arrow.down") }
                         if !vm.checks.isEmpty {
                             Button { csvURL = vm.generateCSV(vesselId: nil); if csvURL != nil { showCSVExport = true } } label: { Label("Export CSV", systemImage: "tablecells") }
+                            Button { csvURL = vm.generateXLSX(vesselId: nil); if csvURL != nil { showCSVExport = true } } label: { Label("Export XLSX", systemImage: "doc.richtext") }
                         }
                     } label: {
                         Image(systemName: "ellipsis").font(.system(size: 14)).foregroundStyle(.secondary)

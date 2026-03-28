@@ -89,6 +89,7 @@ actor ClaudeService {
     /// Extract from raw PDF data (best quality — sends actual PDF to Claude)
     func extractCoR(pdfData: Data) async throws -> CoRExtraction {
         guard !apiKey.isEmpty else { throw ClaudeError.noAPIKey }
+        APIUsageTracker.track(.claudeOCR)
         let base64 = pdfData.base64EncodedString()
         let body: [String: Any] = [
             "model": "claude-sonnet-4-6",
@@ -107,6 +108,7 @@ actor ClaudeService {
     /// Extract from image data (photo or rendered page)
     func extractCoR(imageData: Data) async throws -> CoRExtraction {
         guard !apiKey.isEmpty else { throw ClaudeError.noAPIKey }
+        APIUsageTracker.track(.claudeOCR)
         let base64 = imageData.base64EncodedString()
         let mediaType = detectMediaType(imageData)
         let body: [String: Any] = [
@@ -184,6 +186,7 @@ actor ClaudeService {
 
     func extractDocument(imageData: Data, prompt: String) async throws -> String {
         guard !apiKey.isEmpty else { throw ClaudeError.noAPIKey }
+        APIUsageTracker.track(.claudeOCR)
 
         let base64 = imageData.base64EncodedString()
         let mediaType = detectMediaType(imageData)

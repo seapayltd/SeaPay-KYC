@@ -27,6 +27,23 @@ class KYCViewModel: ObservableObject {
     @Published var pollingError: String?
     @Published var transferLog: [TransferRecord] = []
 
+    // GDPR
+    @Published var consentRecords: [ConsentRecord] = []
+    @Published var auditLog: [AuditEvent] = []
+    var retentionPolicy: RetentionPolicy {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: "retentionPolicy"),
+                  let policy = try? JSONDecoder().decode(RetentionPolicy.self, from: data) else { return .default }
+            return policy
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) { UserDefaults.standard.set(data, forKey: "retentionPolicy") }
+        }
+    }
+
+    private var consentFile: URL { docsDir.appendingPathComponent("consent_records.json") }
+    private var auditFile: URL { docsDir.appendingPathComponent("audit_log.json") }
+
     var pollTimers: [String: Timer] = [:]
     private let netMonitor = NWPathMonitor()
     private let imageCache = NSCache<NSString, NSData>()
@@ -79,10 +96,18 @@ class KYCViewModel: ObservableObject {
             let loadedChecks = EncryptionService.readDecrypted(from: checksURL).flatMap { try? decoder.decode([KYCCheck].self, from: $0) } ?? []
             let loadedVessels = EncryptionService.readDecrypted(from: vesselsURL).flatMap { try? decoder.decode([Vessel].self, from: $0) } ?? []
             let loadedTransfers = EncryptionService.readDecrypted(from: transferURL).flatMap { try? decoder.decode([TransferRecord].self, from: $0) } ?? []
+
+            let consentURL = await self?.consentFile
+            let auditURL = await self?.auditFile
+            let loadedConsent = consentURL.flatMap { EncryptionService.readDecrypted(from: $0) }.flatMap { try? decoder.decode([ConsentRecord].self, from: $0) } ?? []
+            let loadedAudit = auditURL.flatMap { (try? Data(contentsOf: $0)).flatMap { try? decoder.decode([AuditEvent].self, from: $0) } } ?? []
+
             await MainActor.run { [weak self] in
                 self?.checks = loadedChecks
                 self?.vessels = loadedVessels
                 self?.transferLog = loadedTransfers
+                self?.consentRecords = loadedConsent
+                self?.auditLog = loadedAudit
                 self?.startPollingPendingSessions()
             }
         }
@@ -120,6 +145,38 @@ class KYCViewModel: ObservableObject {
     func saveTransferLog() {
         let e = JSONEncoder(); e.dateEncodingStrategy = .iso8601; e.outputFormatting = .prettyPrinted
         if let data = try? e.encode(transferLog) { try? EncryptionService.writeEncrypted(data, to: transferLogFile) }
+    }
+
+    // MARK: - GDPR Persistence
+
+    func saveConsentRecords() {
+        let e = JSONEncoder(); e.dateEncodingStrategy = .iso8601; e.outputFormatting = .prettyPrinted
+        if let data = try? e.encode(consentRecords) { try? EncryptionService.writeEncrypted(data, to: consentFile) }
+    }
+
+    func saveAuditLog() {
+        let e = JSONEncoder(); e.dateEncodingStrategy = .iso8601; e.outputFormatting = .prettyPrinted
+        if let data = try? e.encode(auditLog) { try? data.write(to: auditFile) } // Audit log not encrypted — for forensic access
+    }
+
+    func logAudit(_ action: AuditEvent.AuditAction, entityId: String, entityName: String, detail: String? = nil) {
+        GDPRService.logAudit(action: action, entityId: entityId, entityName: entityName,
+            performedBy: AgentProfile.current?.fullName ?? "Agent", detail: detail, log: &auditLog)
+        saveAuditLog()
+    }
+
+    func recordConsent(checkId: String, subjectName: String) {
+        GDPRService.recordConsent(subjectName: subjectName, checkId: checkId,
+            types: [.identityVerification, .amlScreening, .dataProcessing], store: &consentRecords)
+        saveConsentRecords()
+    }
+
+    func exportDSAR(name: String) -> URL? {
+        GDPRService.exportSubjectData(name: name, checks: checks, vessels: vessels, consentRecords: consentRecords, auditLog: auditLog)
+    }
+
+    var retentionFlaggedChecks: [KYCCheck] {
+        GDPRService.flaggedForRetention(checks: checks, policy: retentionPolicy)
     }
 
     private func deferHeavyWork() {

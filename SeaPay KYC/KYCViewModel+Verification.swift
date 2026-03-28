@@ -26,6 +26,7 @@ extension KYCViewModel {
         guard !wf.isEmpty else { throw AppError.missingRequiredField("Workflow ID — configure it in Settings") }
 
         let api = VerificationAPIService.shared
+        APIUsageTracker.track(.session)
         let session = try await api.createSession(workflowID: wf, vendorData: checks[i].customerName)
 
         checks[i].status = .inProgress
@@ -65,6 +66,7 @@ extension KYCViewModel {
         _ = saveImages(checkId: checkId, front: frontImage, back: backImage)
 
         let api = VerificationAPIService.shared
+        APIUsageTracker.track(.idScan)
         let (idResp, idRaw) = try await api.verifyID(frontImage: frontImage, backImage: backImage, vendorData: checkId)
         let id = idResp.idVerification
 
@@ -108,6 +110,7 @@ extension KYCViewModel {
         let iso2 = toISO2(checks[i].nationality) ?? toISO2(checks[i].documentType)
         let opts = VerificationAPIService.AMLOptions(includeAdverseMedia: true, includeMonitoring: monitoring)
         let api = VerificationAPIService.shared
+        APIUsageTracker.track(.amlScreening)
         let (amlResp, amlRaw) = try await api.screenAML(
             fullName: name, dateOfBirth: checks[i].dateOfBirth,
             nationality: iso2, documentNumber: checks[i].documentNumber, vendorData: checkId, options: opts
@@ -157,6 +160,7 @@ extension KYCViewModel {
 
         onProgress("Verifying address...")
         let api = VerificationAPIService.shared
+        APIUsageTracker.track(.poaCheck)
         let (resp, raw) = try await api.verifyAddress(document: documentImage, expectedName: expectedName, expectedAddress: expectedAddress, vendorData: checkId)
         let json = String(data: raw, encoding: .utf8) ?? ""
         let poa = resp.poa

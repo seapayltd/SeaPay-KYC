@@ -46,6 +46,27 @@ extension KYCViewModel {
         return url
     }
 
+    // MARK: - XLSX Export
+
+    func generateXLSX(vesselId: String?) -> URL? {
+        let target = vesselId.map { checksForVessel($0) } ?? checks
+        return XLSXExporter.generateWorkbook(checks: target, vessels: vesselId != nil ? vessels.filter { $0.id == vesselId } : vessels)
+    }
+
+    // MARK: - Vessel Compliance Summary PDF
+
+    func generateVesselComplianceReport(vesselId: String) -> URL? {
+        guard let vessel = vessels.first(where: { $0.id == vesselId }) else { return nil }
+        let crew = checksForVessel(vesselId)
+        let readiness = vesselDocReadiness(for: vessel)
+        let data = ReportGenerator.generateVesselComplianceSummary(vessel: vessel, checks: crew, readiness: readiness)
+        let safeName = vessel.name.replacingOccurrences(of: " ", with: "_")
+        let name = "Compliance_\(safeName)_\(Date().formatted(.iso8601.year().month().day())).pdf"
+        let url = reportsDir.appendingPathComponent(name)
+        try? data.write(to: url)
+        return url
+    }
+
     func generateCrewList(vesselId: String) -> URL? {
         guard let vessel = vessels.first(where: { $0.id == vesselId }) else { return nil }
         let crew = checksForVessel(vesselId)

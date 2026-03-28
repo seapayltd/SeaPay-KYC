@@ -545,7 +545,7 @@ struct SettingsSheet: View {
                             Divider().padding(.leading, 44)
                             HStack(spacing: 12) {
                                 Image(systemName: BiometricService.biometricIcon).font(.system(size: 15)).foregroundStyle(.secondary).frame(width: 24)
-                                Text("Lock with \(BiometricService.biometricName)").font(Typo.body).foregroundStyle(.secondary)
+                                Text(L10n.Biometric.lockWith(BiometricService.biometricName)).font(Typo.body).foregroundStyle(.secondary)
                                 Spacer()
                                 Toggle("", isOn: Binding(
                                     get: { BiometricService.isEnabled },
@@ -580,6 +580,72 @@ struct SettingsSheet: View {
                         Divider().padding(.leading, 44)
                         Button { showImportBackup = true } label: {
                             settingsActionRow(icon: "square.and.arrow.down", label: "Import Backup", detail: "Restore from a backup file")
+                        }
+                    }
+
+                    // MARK: Privacy & Compliance
+                    settingsSection("Privacy & Compliance") {
+                        NavigationLink {
+                            RetentionSettingsView(vm: vm)
+                        } label: {
+                            settingsActionRow(icon: "clock.badge.checkmark", label: "Data Retention", detail: "\(vm.retentionPolicy.retentionYears) year\(vm.retentionPolicy.retentionYears == 1 ? "" : "s")")
+                        }
+                        Divider().padding(.leading, 44)
+                        NavigationLink {
+                            DSARView(vm: vm)
+                        } label: {
+                            settingsActionRow(icon: "person.text.rectangle", label: "Subject Data Request", detail: "DSAR export")
+                        }
+                        Divider().padding(.leading, 44)
+                        NavigationLink {
+                            AuditLogView(vm: vm)
+                        } label: {
+                            settingsActionRow(icon: "list.clipboard", label: "Audit Log", detail: "\(vm.auditLog.count) event\(vm.auditLog.count == 1 ? "" : "s")")
+                        }
+                        if !vm.retentionFlaggedChecks.isEmpty {
+                            Divider().padding(.leading, 44)
+                            HStack(spacing: 12) {
+                                Image(systemName: "exclamationmark.triangle").font(.system(size: 15)).foregroundStyle(Color.review).frame(width: 24)
+                                Text("\(vm.retentionFlaggedChecks.count) record\(vm.retentionFlaggedChecks.count == 1 ? "" : "s") past retention period")
+                                    .font(Typo.meta).foregroundStyle(Color.review)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 16).padding(.vertical, 10)
+                        }
+                    }
+
+                    // MARK: API & Demo
+                    settingsSection("API Usage") {
+                        NavigationLink {
+                            APIUsageView()
+                        } label: {
+                            let usage = APIUsageTracker.totalLast30Days()
+                            settingsActionRow(icon: "chart.bar", label: "API Dashboard", detail: "\(usage.calls) calls / $\(String(format: "%.2f", usage.cost))")
+                        }
+                        Divider().padding(.leading, 44)
+                        HStack(spacing: 12) {
+                            Image(systemName: "play.rectangle").font(.system(size: 15)).foregroundStyle(.secondary).frame(width: 24)
+                            Text("Demo Mode").font(Typo.body).foregroundStyle(.secondary)
+                            Spacer()
+                            Toggle("", isOn: Binding(
+                                get: { DemoMode.isEnabled },
+                                set: { newVal in
+                                    DemoMode.isEnabled = newVal
+                                    if newVal { DemoMode.populateDemoData(vm: vm) }
+                                    else { DemoMode.clearDemoData(vm: vm) }
+                                    Haptics.light()
+                                }
+                            ))
+                            .labelsHidden()
+                        }
+                        .padding(.horizontal, 16).padding(.vertical, 12)
+                        if DemoMode.isEnabled {
+                            HStack(spacing: 12) {
+                                Spacer().frame(width: 24)
+                                Text("Using fake data — no API calls made").font(Typo.meta).foregroundStyle(Color.review)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 16).padding(.bottom, 8)
                         }
                     }
 

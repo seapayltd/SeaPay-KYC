@@ -960,6 +960,110 @@ enum ReportGenerator {
     }
 
     // ═══════════════════════════════════════════
+    // MARK: - Vessel Compliance Summary
+    // ═══════════════════════════════════════════
+
+    static func generateVesselComplianceSummary(vessel: Vessel, checks: [KYCCheck], readiness: (completed: Int, total: Int, expiring: Int, expired: Int)) -> Data {
+        let renderer = UIGraphicsPDFRenderer(bounds: pg)
+        return renderer.pdfData { ctx in
+            ctx.beginPage(); watermark()
+
+            // Header
+            black.setFill(); UIRectFill(CGRect(x: 0, y: 0, width: pg.width, height: 90))
+            txt("OceanCheck", pt(L, 22), BrandFont.uiFont(size: 24), white)
+            txt("VESSEL COMPLIANCE SUMMARY", pt(L, 54), .systemFont(ofSize: 8.5, weight: .bold), UIColor(white: 0.5, alpha: 1))
+            txtR(Date().formatted(date: .long, time: .omitted), 30, .systemFont(ofSize: 7), UIColor(white: 0.4, alpha: 1))
+
+            var y: CGFloat = 108
+
+            // Vessel info
+            txt(vessel.name.uppercased(), pt(L, y), .systemFont(ofSize: 20, weight: .bold), black); y += 26
+            if !vessel.imoNumber.isEmpty {
+                txt("IMO \(vessel.imoNumber) \u{2022} \(vessel.flagState) \u{2022} \(vessel.portOfRegistry)", pt(L, y), .systemFont(ofSize: 9), mid); y += 16
+            }
+            if let vt = vessel.vesselType {
+                txt("Type: \(vt.rawValue) \u{2022} GT: \(vessel.grossTonnage)", pt(L, y), .systemFont(ofSize: 9), mid); y += 20
+            }
+
+            // Readiness bar
+            let pct = readiness.total > 0 ? CGFloat(readiness.completed) / CGFloat(readiness.total) : 0
+            let barW = W * 0.6; let barH: CGFloat = 12
+            let barColor = pct >= 1.0 ? sG : pct >= 0.7 ? sA : sR
+            UIColor(white: 0.93, alpha: 1).setFill()
+            UIBezierPath(roundedRect: CGRect(x: L, y: y, width: barW, height: barH), cornerRadius: 3).fill()
+            barColor.setFill()
+            UIBezierPath(roundedRect: CGRect(x: L, y: y, width: barW * pct, height: barH), cornerRadius: 3).fill()
+            txt("\(readiness.completed)/\(readiness.total) certificates", pt(L + barW + 10, y + 1), .systemFont(ofSize: 9, weight: .medium), dark)
+            y += 24
+
+            // Stats row
+            let stats = [
+                ("Completed", "\(readiness.completed)", sG),
+                ("Expiring", "\(readiness.expiring)", sA),
+                ("Expired", "\(readiness.expired)", sR),
+                ("Missing", "\(readiness.total - readiness.completed)", mid)
+            ]
+            let statW = W / CGFloat(stats.count)
+            for (i, stat) in stats.enumerated() {
+                let sx = L + statW * CGFloat(i)
+                txt(stat.1, pt(sx + 4, y), .systemFont(ofSize: 18, weight: .bold), stat.2)
+                txt(stat.0, pt(sx + 4, y + 20), .systemFont(ofSize: 8), mid)
+            }
+            y += 44
+
+            // Crew summary
+            let seafarers = checks.filter { $0.entityType.category == .crew }
+            let compliance = checks.filter { $0.entityType.category == .ownership }
+            let crewPassed = seafarers.filter { $0.status == .passed }.count
+            let compPassed = compliance.filter { $0.status == .passed }.count
+
+            ruleC.setFill(); UIRectFill(CGRect(x: L, y: y, width: W, height: 0.5)); y += 12
+            txt("CREW VERIFICATION", pt(L, y), .systemFont(ofSize: 8, weight: .bold), mid); y += 14
+
+            if seafarers.isEmpty {
+                txt("No crew members registered", pt(L + 8, y), .systemFont(ofSize: 9), light); y += 16
+            } else {
+                txt("\(crewPassed)/\(seafarers.count) verified", pt(L + 8, y), .systemFont(ofSize: 9, weight: .medium), crewPassed == seafarers.count ? sG : sA); y += 14
+                for (i, check) in seafarers.prefix(20).enumerated() {
+                    if y > pg.height - 60 { ctx.beginPage(); y = 48; watermark() }
+                    let bg = i % 2 == 0 ? bgAlt : UIColor.clear
+                    bg.setFill(); UIRectFill(CGRect(x: L, y: y, width: W, height: 14))
+                    let sc_ = sc(check.status)
+                    sc_.setFill(); UIRectFill(CGRect(x: L, y: y + 2, width: 3, height: 10))
+                    txt(check.displayName, pt(L + 8, y + 1), .systemFont(ofSize: 8), dark)
+                    txt(check.crewRank?.rawValue ?? "", pt(L + 200, y + 1), .systemFont(ofSize: 8), mid)
+                    txt(check.status.rawValue, pt(L + 350, y + 1), .systemFont(ofSize: 7, weight: .semibold), sc_)
+                    y += 14
+                }
+            }
+            y += 12
+
+            // Compliance entities
+            if !compliance.isEmpty {
+                ruleC.setFill(); UIRectFill(CGRect(x: L, y: y, width: W, height: 0.5)); y += 12
+                txt("OWNERSHIP & COMPLIANCE", pt(L, y), .systemFont(ofSize: 8, weight: .bold), mid); y += 14
+                txt("\(compPassed)/\(compliance.count) verified", pt(L + 8, y), .systemFont(ofSize: 9, weight: .medium), compPassed == compliance.count ? sG : sA); y += 14
+                for (i, check) in compliance.enumerated() {
+                    if y > pg.height - 60 { ctx.beginPage(); y = 48; watermark() }
+                    let bg = i % 2 == 0 ? bgAlt : UIColor.clear
+                    bg.setFill(); UIRectFill(CGRect(x: L, y: y, width: W, height: 14))
+                    let sc_ = sc(check.status)
+                    sc_.setFill(); UIRectFill(CGRect(x: L, y: y + 2, width: 3, height: 10))
+                    txt(check.displayName, pt(L + 8, y + 1), .systemFont(ofSize: 8), dark)
+                    txt(check.entityType.rawValue, pt(L + 200, y + 1), .systemFont(ofSize: 8), mid)
+                    txt(check.status.rawValue, pt(L + 350, y + 1), .systemFont(ofSize: 7, weight: .semibold), sc_)
+                    y += 14
+                }
+            }
+
+            // Footer
+            let fy = pg.height - 40
+            ruleC.setFill(); UIRectFill(CGRect(x: L, y: fy, width: W, height: 0.5))
+            txt("Generated by OceanCheck \u{2022} \(Date().formatted(date: .long, time: .shortened))", pt(L, fy + 8), .systemFont(ofSize: 7), light)
+        }
+    }
+
+    // ═══════════════════════════════════════════
     // MARK: - Authority Packet (flag state, insurance)
     // ═══════════════════════════════════════════
 
