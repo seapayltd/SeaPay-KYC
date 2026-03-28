@@ -19,6 +19,36 @@ actor ClaudeService {
         KeychainService.get(.claudeAPIKey) ?? ""
     }
 
+    // MARK: - API Key Validation
+
+    func validateAPIKey() async -> (valid: Bool, error: String?) {
+        guard !apiKey.isEmpty else { return (false, "No API key set") }
+        var request = URLRequest(url: URL(string: endpoint)!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue(apiVersion, forHTTPHeaderField: "anthropic-version")
+        request.timeoutInterval = 10
+
+        let body: [String: Any] = [
+            "model": "claude-sonnet-4-5-20250929",
+            "max_tokens": 10,
+            "messages": [["role": "user", "content": "Hi"]]
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if status == 200 { return (true, nil) }
+            if status == 401 { return (false, "Invalid API key") }
+            if status == 403 { return (false, "API key lacks permission") }
+            return (false, "API error (status \(status))")
+        } catch {
+            return (false, "Connection failed: \(error.localizedDescription)")
+        }
+    }
+
     // MARK: - CoR Extraction
 
     struct CoRExtraction: Codable {
@@ -36,6 +66,7 @@ actor ClaudeService {
         var hullMaterial: String?
         var vesselDescription: String?
         var lengthOverall: String?
+        var registeredLength: String?
         var breadth: String?
         var depth: String?
         var draught: String?
@@ -225,7 +256,8 @@ actor ClaudeService {
       "yearBuilt": "year",
       "hullMaterial": "e.g. GRP, Steel",
       "vesselDescription": "vessel type description from certificate",
-      "lengthOverall": "length in metres",
+      "lengthOverall": "Length Overall (LOA) in metres",
+      "registeredLength": "Registered Length in metres (per IMO definition, distinct from LOA — often labeled 'Length (Reg.)' or 'Registered Length')",
       "breadth": "breadth in metres",
       "depth": "depth in metres",
       "draught": "draught in metres",
@@ -264,6 +296,7 @@ actor ClaudeService {
             "hullMaterial": ["type": ["string", "null"]],
             "vesselDescription": ["type": ["string", "null"]],
             "lengthOverall": ["type": ["string", "null"]],
+            "registeredLength": ["type": ["string", "null"]],
             "breadth": ["type": ["string", "null"]],
             "depth": ["type": ["string", "null"]],
             "draught": ["type": ["string", "null"]],
@@ -287,7 +320,7 @@ actor ClaudeService {
 // MARK: - Errors
 
 extension Optional where Wrapped == String {
-    var isNilOrEmpty: Bool { self == nil || self!.isEmpty }
+    var isNilOrEmpty: Bool { (self ?? "").isEmpty }
 }
 
 enum ClaudeError: LocalizedError {

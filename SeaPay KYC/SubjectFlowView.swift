@@ -27,6 +27,13 @@ struct SubjectFlowView: View {
     @State private var consent = false
     @State private var showDoneButton = false
 
+    // Clipboard
+    private var clipboardURL: String? {
+        guard let str = UIPasteboard.general.string else { return nil }
+        let trimmed = str.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.contains("oceancheck://") || trimmed.contains("verification.didit") ? trimmed : nil
+    }
+
     // Certificate upload
     @State private var capturedCerts: [(type: MaritimeDocType, data: Data)] = []
     @State private var showCertCamera = false
@@ -101,6 +108,23 @@ struct SubjectFlowView: View {
 
                     // Paste link — secondary for remote
                     VStack(spacing: 10) {
+                        // Clipboard auto-detect
+                        if let clip = clipboardURL, code.isEmpty {
+                            Button {
+                                code = clip
+                                parseInput(clip)
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "doc.on.clipboard").font(.system(size: 11))
+                                    Text("Paste from clipboard").font(Typo.meta)
+                                }
+                                .foregroundStyle(.primary)
+                                .padding(.horizontal, 14).padding(.vertical, 8)
+                                .background(Color.surfaceMuted)
+                                .clipShape(Capsule())
+                            }
+                        }
+
                         TextField("Paste invite link here", text: $code)
                             .font(Typo.body)
                             .multilineTextAlignment(.center)
@@ -128,33 +152,66 @@ struct SubjectFlowView: View {
 
     // ═══════════ CONSENT ═══════════
 
+    @State private var showDataInfo = false
+
     private var consentView: some View {
         ScrollView {
-            VStack(spacing: 20) {
+            VStack(spacing: 24) {
                 Spacer(minLength: 24)
 
                 Image(systemName: "person.badge.shield.checkmark")
-                    .font(.system(size: 48)).foregroundStyle(.primary.opacity(0.2))
+                    .font(.system(size: 48)).foregroundStyle(.primary.opacity(0.15))
 
                 Text("Verification Request").font(Typo.context)
                 if !agentName.isEmpty {
                     Text("\(agentName) has requested identity verification.").font(Typo.meta).foregroundStyle(.secondary)
                 }
 
-                VStack(alignment: .leading, spacing: 10) {
-                    step("1", "Take a photo of your ID")
-                    step("2", "Take a selfie")
-                    step("3", "Review and submit")
-                }.padding(.horizontal, 40)
+                // Visual timeline
+                HStack(spacing: 0) {
+                    timelineStep("creditcard", "Photo ID", true)
+                    Rectangle().fill(Color.primary.opacity(0.15)).frame(height: 1).frame(maxWidth: 30)
+                    timelineStep("person.crop.circle", "Selfie", false)
+                    Rectangle().fill(Color.primary.opacity(0.15)).frame(height: 1).frame(maxWidth: 30)
+                    timelineStep("checkmark.circle", "Complete", false)
+                }
+                .padding(.horizontal, 40)
 
-                Text("Your data is processed securely for verification purposes only.")
-                    .font(Typo.meta).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 32)
+                // Consent card
+                VStack(spacing: 14) {
+                    Toggle(isOn: $consent) {
+                        Text("I consent to identity verification").font(Typo.body)
+                    }
+                    .tint(.primary)
 
-                Toggle(isOn: $consent) {
-                    Text("I consent to identity verification").font(Typo.meta)
-                }.tint(.primary).padding(.horizontal, 32)
+                    // Data privacy expandable
+                    Button { withAnimation(.smooth(duration: 0.2)) { showDataInfo.toggle() } } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "lock.shield").font(.system(size: 12))
+                            Text("What happens to my data?").font(Typo.meta)
+                            Spacer()
+                            Image(systemName: showDataInfo ? "chevron.up" : "chevron.down").font(.system(size: 9))
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
 
-                Button { showDoneButton = false; withAnimation { phase = .verify } } label: { Text("Begin") }
+                    if showDataInfo {
+                        VStack(alignment: .leading, spacing: 8) {
+                            privacyLine("checkmark.shield", "Verified by Didit, a certified identity provider")
+                            privacyLine("lock", "Data encrypted and processed securely")
+                            privacyLine("eye.slash", "Your employer receives only the verification result")
+                        }
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+                }
+                .padding(16)
+                .background(Color.surfaceMuted.opacity(0.4))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.primary.opacity(0.06), lineWidth: 0.5))
+                .padding(.horizontal, 32)
+
+                Button { showDoneButton = false; withAnimation { phase = .verify } } label: { Text("Begin Verification") }
                     .buttonStyle(PrimaryButtonStyle(isEnabled: consent)).disabled(!consent).padding(.horizontal, 40)
 
                 Button { appState.showSubjectFlow = false } label: {
@@ -166,10 +223,23 @@ struct SubjectFlowView: View {
         }
     }
 
-    private func step(_ num: String, _ text: String) -> some View {
-        HStack(spacing: 12) {
-            Text(num).font(Typo.body).foregroundStyle(Color.surface).frame(width: 26, height: 26).background(Color.primary).clipShape(Circle())
-            Text(text).font(Typo.body)
+    private func timelineStep(_ icon: String, _ label: String, _ active: Bool) -> some View {
+        VStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 18))
+                .foregroundStyle(active ? .primary : .quaternary)
+                .frame(width: 36, height: 36)
+                .background(active ? Color.primary.opacity(0.08) : Color.clear)
+                .clipShape(Circle())
+            Text(label).font(.system(size: 9)).foregroundStyle(active ? .primary : .quaternary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func privacyLine(_ icon: String, _ text: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon).font(.system(size: 11)).foregroundStyle(.tertiary).frame(width: 16)
+            Text(text).font(Typo.meta).foregroundStyle(.secondary)
         }
     }
 

@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import PhotosUI
 import Vision
 import PDFKit
 import UniformTypeIdentifiers
@@ -34,6 +35,11 @@ struct VesselSheet: View {
     @State private var showExample = false
     @State private var nameSuggestions: [String] = []
     @FocusState private var fieldFocus: Bool
+
+    // Photo prompt after creation
+    @State private var showPhotoPrompt = false
+    @State private var createdVesselId: String?
+    @State private var selectedVesselPhoto: PhotosPickerItem?
 
     // Maritime flag states — emoji flag + name + ISO3 code + common port
     static let flagStates: [(emoji: String, name: String, code: String, port: String)] = [
@@ -210,7 +216,56 @@ struct VesselSheet: View {
                     Task { await extractFromImage(data) }
                 }
             }
+            .sheet(isPresented: $showPhotoPrompt) {
+                vesselPhotoPrompt
+            }
         }
+    }
+
+    // MARK: - Photo Prompt (after creation)
+
+    private var vesselPhotoPrompt: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                Spacer()
+                VStack(spacing: 24) {
+                    Image(systemName: "camera.circle").font(.system(size: 56)).foregroundStyle(.quaternary)
+                    Text("Add a photo of your vessel?").font(Typo.context)
+                    Text("It will appear on the vessel card and detail screen").font(Typo.meta).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center).padding(.horizontal, 32)
+
+                    PhotosPicker(selection: $selectedVesselPhoto, matching: .images) {
+                        Text("Choose Photo")
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .padding(.horizontal, 48)
+                    .onChange(of: selectedVesselPhoto) { _, item in
+                        guard let item else { return }
+                        Task {
+                            if let data = try? await item.loadTransferable(type: Data.self),
+                               let vid = createdVesselId {
+                                await MainActor.run {
+                                    vm.saveVesselPhoto(vesselId: vid, imageData: data)
+                                    showPhotoPrompt = false
+                                    dismiss()
+                                }
+                            }
+                        }
+                    }
+
+                    Button {
+                        showPhotoPrompt = false
+                        dismiss()
+                    } label: {
+                        Text("Skip").font(Typo.meta).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+            }
+            .background(Color.surface.ignoresSafeArea())
+        }
+        .presentationDetents([.medium])
+        .interactiveDismissDisabled()
     }
 
     // MARK: - Choose Method
@@ -296,8 +351,9 @@ struct VesselSheet: View {
 
             VStack(spacing: 8) {
                 ProgressView().controlSize(.regular)
-                Text(scanSource == "pdf" ? "Reading PDF..." : "Reading certificate...")
+                Text(extractionMethod.isEmpty ? (scanSource == "pdf" ? "Reading PDF..." : "Reading certificate...") : extractionMethod)
                     .font(Typo.body).foregroundStyle(.secondary)
+                    .animation(.smooth(duration: 0.2), value: extractionMethod)
             }
 
             Spacer()
@@ -426,6 +482,12 @@ struct VesselSheet: View {
 
                     // Port of Registry
                     field("Port of Registry", text: $v.portOfRegistry, prompt: selectedFlag?.port ?? "Port")
+
+                    // Gross Tonnage — critical for compliance thresholds
+                    field("Gross Tonnage (GT)", text: $v.grossTonnage, prompt: "e.g. 280")
+
+                    // Year Built — needed for LY2/LY3 determination
+                    field("Year Built", text: $v.yearBuilt, prompt: "e.g. 2019")
                 }
                 .padding(.horizontal, 32)
 
@@ -606,6 +668,7 @@ struct VesselSheet: View {
         if let n = r.hullMaterial { v.hullMaterial = n }
         if let n = r.vesselDescription { v.vesselDescription = n }
         if let n = r.lengthOverall { v.lengthOverall = n }
+        if let n = r.registeredLength { v.registeredLength = n }
         if let n = r.breadth { v.breadth = n }
         if let n = r.depth { v.depth = n }
         if let n = r.draught { v.draught = n }
@@ -685,7 +748,8 @@ struct VesselSheet: View {
         if let data = corImage {
             try? data.write(to: vm.imagesDir.appendingPathComponent("\(full.id)_cor.jpg"))
         }
-        dismiss()
+        createdVesselId = full.id
+        showPhotoPrompt = true
     }
 
     private func field(_ label: String, text: Binding<String>, prompt: String) -> some View {

@@ -19,7 +19,8 @@ struct VerificationSheet: View {
 
     private var c: KYCCheck { vm.checks.first(where: { $0.id == check.id }) ?? check }
     private var hasResults: Bool { c.rawIDResponse != nil || c.completedAt != nil }
-    private var isWaitingForInvite: Bool { c.sessionId != nil && c.completedAt == nil && c.status == .inProgress }
+    private var isWaitingForInvite: Bool { c.sessionId != nil && c.completedAt == nil && c.rawIDResponse == nil }
+    private var isExpiredSession: Bool { c.sessionId != nil && c.status == .incomplete && c.completedAt != nil }
 
     // Config
     @State private var step: ConfigStep = .docType
@@ -41,19 +42,20 @@ struct VerificationSheet: View {
 
     // Results
     @State private var idResult: IDResult?; @State private var amlResult: AMLResult?
-    @State private var resultTab = 0 // 0=identity, 1=compliance, 2=address
     @State private var expandedHits: Set<Int> = []
+    @State private var expandedSections: Set<String> = ["identity", "compliance", "address"]
 
     // Review
     @State private var editedName = ""; @State private var showAMLRerun = false
-    @State private var reviewReason = ""; @State private var showReviewSheet = false; @State private var pendingReview: KYCCheck.ReviewDecision?
+    @State private var reviewReason = ""; @State private var pendingReview: KYCCheck.ReviewDecision?; @State private var showChangeOptions = false
     @State private var notes = ""
 
 
     var body: some View {
         NavigationStack {
             Group {
-                if hasResults { resultsView }
+                if hasResults && !isExpiredSession { resultsView }
+                else if isExpiredSession { expiredSessionView }
                 else if isWaitingForInvite { inviteWaitingView }
                 else if busy { processingView }
                 else { configView }
@@ -75,11 +77,17 @@ struct VerificationSheet: View {
                 TextField("Full name", text: $editedName)
                 Button("Screen") { Task { await rerunAML() } }; Button("Cancel", role: .cancel) {}
             } message: { Text("Edit the name and re-run compliance screening.") }
-            .alert("Review Decision", isPresented: $showReviewSheet) {
-                TextField("Reason", text: $reviewReason)
-                if let d = pendingReview { Button(d.rawValue) { vm.submitReview(checkId: c.id, decision: d, reason: reviewReason); reviewReason = "" } }
-                Button("Cancel", role: .cancel) { reviewReason = "" }
-            } message: { Text("Recorded in the audit trail and PDF report.") }
+            .sheet(item: $pendingReview) { decision in
+                ReviewCeremonyView(
+                    personName: c.displayName,
+                    documentType: c.documentType?.replacingOccurrences(of: "_", with: " ").capitalized,
+                    amlStatus: c.amlStatus,
+                    decision: decision == .approved ? .approve : decision == .declined ? .decline : .flag,
+                    reason: $reviewReason,
+                    onConfirm: { vm.submitReview(checkId: c.id, decision: decision, reason: reviewReason); reviewReason = "" }
+                )
+                .presentationDetents([.medium])
+            }
         }
     }
 
@@ -92,7 +100,7 @@ struct VerificationSheet: View {
     @State private var showResendShare = false
 
     private var inviteWaitingView: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 20) {
             Spacer()
             Circle().fill(Color.primary.opacity(0.04)).frame(width: 80, height: 80)
                 .overlay { ProgressView().controlSize(.regular) }
@@ -102,14 +110,66 @@ struct VerificationSheet: View {
                     .font(Typo.meta).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 40)
             }
 
-            if let url = c.hostedVerifyURL, !url.isEmpty {
-                Button { showResendShare = true } label: { Text("Re-share Link") }
-                    .buttonStyle(SecondaryButtonStyle()).padding(.horizontal, 48)
-                .sheet(isPresented: $showResendShare) {
-                    ActivityView(items: [url])
+            // Elapsed time
+            let elapsed = Int(Date().timeIntervalSince(c.createdAt) / 60)
+            Text(elapsed < 60
+                 ? "Invite sent \(max(elapsed, 1)) minute\(elapsed == 1 ? "" : "s") ago"
+                 : "Invite sent \(elapsed / 60) hour\(elapsed / 60 == 1 ? "" : "s") ago")
+                .font(Typo.meta).foregroundStyle(.tertiary)
+
+            // Polling error display
+            if let err = vm.pollingError {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle").font(Typo.meta)
+                    Text(err).font(Typo.meta)
+                }
+                .foregroundStyle(Color.flagged)
+                .padding(.horizontal, 32)
+            }
+
+            VStack(spacing: 10) {
+                if let url = c.hostedVerifyURL, !url.isEmpty {
+                    Button { showResendShare = true } label: { Text("Re-share Link") }
+                        .buttonStyle(SecondaryButtonStyle()).padding(.horizontal, 48)
+                    .sheet(isPresented: $showResendShare) {
+                        ActivityView(items: [url])
+                    }
+                }
+
+                // Cancel option
+                Button {
+                    vm.cancelInviteSession(checkId: c.id)
+                } label: {
+                    Text("Cancel Verification").font(Typo.meta).foregroundStyle(.secondary)
                 }
             }
             Spacer()
+        }
+        .onChange(of: hasResults) { _, newValue in
+            if newValue && !isExpiredSession { Haptics.success() }
+        }
+    }
+
+    // ═══════════════════════════════════════════
+    // MARK: - Expired Session
+    // ═══════════════════════════════════════════
+
+    @State private var showResendInvite = false
+
+    private var expiredSessionView: some View {
+        VStack(spacing: 20) {
+            Spacer()
+            Image(systemName: "clock.badge.xmark").font(.system(size: 48)).foregroundStyle(Color.review)
+            Text("Session Expired").font(Typo.context)
+            Text("The verification link has expired. Send a new invite to verify \(c.displayName).")
+                .font(Typo.meta).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 32)
+
+            Button { showResendInvite = true } label: { Text("Send New Invite") }
+                .buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 48)
+            Spacer()
+        }
+        .sheet(isPresented: $showResendInvite) {
+            InviteSheet(vm: vm, check: c)
         }
     }
 
@@ -202,153 +262,195 @@ struct VerificationSheet: View {
 
     private var resultsView: some View {
         VStack(spacing: 0) {
-            // Pinned verdict
-            if !amlRunning && !poaRunning {
-                VerdictBanner(status: c.status).padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 4)
-            } else {
-                HStack(spacing: 10) {
-                    ProgressView().controlSize(.small)
-                    Text(amlRunning ? "Checking compliance..." : "Verifying address...").font(Typo.meta).foregroundStyle(.secondary)
-                    Spacer()
+            ScrollView {
+                VStack(spacing: 16) {
+                    // Hero header
+                    VStack(spacing: 8) {
+                        HStack(spacing: 10) {
+                            Text(c.displayName).font(Typo.hero)
+                            StatusBadge(status: c.status)
+                        }
+                        // Role pill (tappable menu)
+                        HStack(spacing: 6) {
+                            Menu {
+                                Section("Crew") {
+                                    ForEach(CrewRank.allCases) { r in
+                                        Button { vm.updateEntityType(checkId: c.id, entityType: .seafarer); vm.setCrewRank(r, for: c.id) } label: {
+                                            HStack { Text(r.rawValue); if c.entityType == .seafarer && c.crewRank == r { Image(systemName: "checkmark") } }
+                                        }
+                                    }
+                                }
+                                Section("Shore-Based") {
+                                    ForEach(KYCCheck.EntityType.shoreBasedTypes, id: \.self) { et in
+                                        Button { vm.updateEntityType(checkId: c.id, entityType: et) } label: {
+                                            HStack { Label(et.rawValue, systemImage: et.icon); if c.entityType == et { Image(systemName: "checkmark") } }
+                                        }
+                                    }
+                                }
+                                Section("Ownership") {
+                                    ForEach(KYCCheck.EntityType.ownershipTypes, id: \.self) { et in
+                                        Button { vm.updateEntityType(checkId: c.id, entityType: et) } label: {
+                                            HStack { Label(et.rawValue, systemImage: et.icon); if c.entityType == et { Image(systemName: "checkmark") } }
+                                        }
+                                    }
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: c.entityType.icon).font(.system(size: 10))
+                                    Text(c.entityType.category == .crew ? (c.crewRank?.rawValue ?? "Set Rank") : c.entityType.rawValue).font(Typo.meta)
+                                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 8))
+                                }
+                                .foregroundStyle(c.entityType.category == .crew && c.crewRank == nil ? Color.review : .secondary)
+                                .padding(.horizontal, 10).padding(.vertical, 6)
+                                .background(c.entityType.category == .crew && c.crewRank == nil ? Color.review.opacity(0.08) : Color.surfaceMuted)
+                                .clipShape(Capsule())
+                            }
+
+                            if let dt = c.documentType {
+                                MetadataPill(icon: nil, text: dt.replacingOccurrences(of: "_", with: " ").capitalized)
+                            }
+                            if let date = c.completedAt {
+                                MetadataPill(icon: nil, text: date.formatted(date: .abbreviated, time: .omitted))
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 20).padding(.top, 8)
+
+                    // Processing indicator
+                    if amlRunning || poaRunning {
+                        HStack(spacing: 10) {
+                            ProgressView().controlSize(.small)
+                            Text(amlRunning ? "Checking compliance..." : "Verifying address...").font(Typo.meta).foregroundStyle(.secondary)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 20).padding(.vertical, 12)
+                        .background(Color.surfaceMuted.opacity(0.3))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .padding(.horizontal, 16)
+                    }
+
+                    // Verdict with review audit trail
+                    if !amlRunning && !poaRunning {
+                        VerdictBanner(
+                            status: c.status,
+                            reviewDecision: c.reviewDecision,
+                            reviewedBy: c.reviewedBy,
+                            reviewedAt: c.reviewedAt,
+                            reviewReason: c.reviewReason
+                        )
+                        .padding(.horizontal, 16)
+                    }
+
+                    // Identity section
+                    ExpandableSection("Identity", isExpanded: expandBinding("identity")) {
+                        identityContent.padding(.bottom, 8)
+                    }
+                    .padding(.horizontal, 20)
+
+                    // Compliance section
+                    ExpandableSection("Compliance", isExpanded: expandBinding("compliance")) {
+                        complianceContent.padding(.bottom, 8)
+                    }
+                    .padding(.horizontal, 20)
+
+                    // Address section
+                    if c.poaStatus != nil || depth.includesPoA {
+                        ExpandableSection("Address", isExpanded: expandBinding("address")) {
+                            addressContent.padding(.bottom, 8)
+                        }
+                        .padding(.horizontal, 20)
+                    }
+
+                    // Document Portfolio + PDF Report cards
+                    VStack(spacing: 8) {
+                        NavigationLink {
+                            DocumentPortfolioView(vm: vm, checkId: c.id)
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "folder")
+                                Text("Document Portfolio")
+                                Spacer()
+                                let docs = c.documents ?? []
+                                let valid = docs.filter { $0.status == .valid }.count
+                                Text("\(valid)/\(docs.count)").font(Typo.meta).foregroundStyle(.secondary)
+                                Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+                            }
+                            .font(Typo.body)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12).padding(.horizontal, 16)
+                            .background(Color.surfaceMuted)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                        }
+
+                        NavigationLink {
+                            PDFReportView(vm: vm, checkId: c.id)
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "doc.text")
+                                Text("PDF Report")
+                                Spacer()
+                                Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+                            }
+                            .font(Typo.body)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12).padding(.horizontal, 16)
+                            .background(Color.surfaceMuted)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                        }
+                    }
+                    .padding(.horizontal, 16)
+
+                    Spacer(minLength: 80)
                 }
-                .padding(.horizontal, 20).padding(.vertical, 14)
-                .background(Color.surfaceMuted.opacity(0.3))
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                .padding(.horizontal, 16).padding(.vertical, 8)
             }
 
-            // Tabs
-            Picker("", selection: $resultTab) {
-                Text("Identity").tag(0)
-                Text("Compliance").tag(1)
-                if c.poaStatus != nil || depth.includesPoA { Text("Address").tag(2) }
-            }
-            .pickerStyle(.segmented).padding(.horizontal, 16).padding(.bottom, 8)
-
-            // Tab content
-            TabView(selection: $resultTab) {
-                identityTab.tag(0)
-                complianceTab.tag(1)
-                addressTab.tag(2)
-            }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-
-            // Pinned bottom bar
-            VStack(spacing: 8) {
-                // Role & Rank
-                Menu {
-                    // Crew ranks
-                    Section("Crew") {
-                        ForEach(CrewRank.allCases) { r in
-                            Button {
-                                vm.updateEntityType(checkId: c.id, entityType: .seafarer)
-                                vm.setCrewRank(r, for: c.id)
-                            } label: {
-                                HStack {
-                                    Text(r.rawValue)
-                                    if c.entityType == .seafarer && c.crewRank == r { Image(systemName: "checkmark") }
-                                }
+            // Pinned review bar
+            if !amlRunning && !poaRunning && hasResults {
+                if c.reviewDecision != nil {
+                    // Decision already made — show change options
+                    VStack(spacing: 6) {
+                        Button { withAnimation(.smooth(duration: 0.2)) { showChangeOptions.toggle() } } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.triangle.2.circlepath").font(.system(size: 11))
+                                Text("Change Decision").font(Typo.meta)
                             }
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity).padding(.vertical, 10)
+                        }
+                        if showChangeOptions {
+                            HStack(spacing: 8) {
+                                reviewButton("Approve", Color.clear_, .approved)
+                                reviewButton("Flag", Color.flagged, .flagged)
+                                reviewButton("Decline", Color.review, .declined)
+                            }
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
                         }
                     }
-                    // Shore-based roles
-                    Section("Shore-Based") {
-                        ForEach(KYCCheck.EntityType.shoreBasedTypes, id: \.self) { et in
-                            Button {
-                                vm.updateEntityType(checkId: c.id, entityType: et)
-                            } label: {
-                                HStack {
-                                    Label(et.rawValue, systemImage: et.icon)
-                                    if c.entityType == et { Image(systemName: "checkmark") }
-                                }
-                            }
-                        }
-                    }
-                    // Ownership roles
-                    Section("Ownership") {
-                        ForEach(KYCCheck.EntityType.ownershipTypes, id: \.self) { et in
-                            Button {
-                                vm.updateEntityType(checkId: c.id, entityType: et)
-                            } label: {
-                                HStack {
-                                    Label(et.rawValue, systemImage: et.icon)
-                                    if c.entityType == et { Image(systemName: "checkmark") }
-                                }
-                            }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: c.entityType.icon)
-                        VStack(alignment: .leading, spacing: 1) {
-                            if c.entityType.category == .crew {
-                                Text(c.crewRank?.rawValue ?? "Set Rank").font(Typo.body)
-                                Text("Crew").font(Typo.meta).foregroundStyle(.secondary)
-                            } else {
-                                Text(c.entityType.rawValue).font(Typo.body)
-                                Text(c.entityType.category.rawValue).font(Typo.meta).foregroundStyle(.secondary)
-                            }
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.up.chevron.down").font(.system(size: 10)).foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10).padding(.horizontal, 16)
-                    .background(c.entityType.category == .crew && c.crewRank == nil ? Color.review.opacity(0.08) : Color.surfaceMuted)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
-
-                // Document Portfolio
-                NavigationLink {
-                    DocumentPortfolioView(vm: vm, checkId: c.id)
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "folder")
-                        Text("Document Portfolio")
-                        Spacer()
-                        let docs = c.documents ?? []
-                        let valid = docs.filter { $0.status == .valid }.count
-                        Text("\(valid)/\(docs.count)")
-                            .font(Typo.meta).foregroundStyle(.secondary)
-                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
-                    }
-                    .font(Typo.body)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12).padding(.horizontal, 16)
-                    .background(Color.surfaceMuted)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
-
-                NavigationLink {
-                    PDFReportView(vm: vm, checkId: c.id)
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "doc.text")
-                        Text("PDF Report")
-                    }
-                    .font(Typo.body)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(Color.surfaceMuted)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
-
-                if !amlRunning && !poaRunning {
+                    .padding(.horizontal, 16).padding(.vertical, 6)
+                    .background(.bar)
+                } else {
+                    // No decision yet — show 3 review buttons
                     HStack(spacing: 8) {
                         reviewButton("Approve", Color.clear_, .approved)
                         reviewButton("Flag", Color.flagged, .flagged)
                         reviewButton("Decline", Color.review, .declined)
                     }
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .background(.bar)
                 }
             }
-            .padding(.horizontal, 16).padding(.vertical, 10)
-            .background(.bar)
         }
     }
 
-    // ── Identity Tab ──
-    private var identityTab: some View {
-        ScrollView {
+    private func expandBinding(_ key: String) -> Binding<Bool> {
+        Binding(
+            get: { expandedSections.contains(key) },
+            set: { if $0 { expandedSections.insert(key) } else { expandedSections.remove(key) } }
+        )
+    }
+
+    // ── Identity Content ──
+    private var identityContent: some View {
             VStack(alignment: .leading, spacing: 12) {
                 if let id = idResult {
                     if let dt = id.documentType {
@@ -358,8 +460,12 @@ struct VerificationSheet: View {
                     if let v = id.documentNumber { DataRow(label: "Number", value: v) }
                     if let v = id.dateOfBirth { DataRow(label: "DOB", value: v + (id.age.map { " (\($0))" } ?? "")) }
                     if let v = id.nationality { DataRow(label: "Nationality", value: v.uppercased()) }
-                    if let v = id.issuingCountry { DataRow(label: "Issued by", value: v) }
+                    if let v = id.issuingCountry ?? id.issuingStateName ?? id.issuingState { DataRow(label: "Issued by", value: v) }
                     if let v = id.expiryDate { DataRow(label: "Expires", value: v, color: expired(v) ? .flagged : nil) }
+                    if let v = id.dateOfIssue { DataRow(label: "Issued", value: v) }
+                    if let v = id.gender { DataRow(label: "Gender", value: v) }
+                    if let v = id.placeOfBirth { DataRow(label: "Place of birth", value: v) }
+                    if let v = id.personalNumber { DataRow(label: "Personal No.", value: v) }
                     if let v = id.formattedAddress ?? id.address, !v.isEmpty { DataRow(label: "Address", value: v) }
                     if let w = id.warnings, !w.isEmpty {
                         Divider()
@@ -376,7 +482,13 @@ struct VerificationSheet: View {
                     if let v = c.documentNumber { DataRow(label: "Number", value: v) }
                     if let v = c.dateOfBirth { DataRow(label: "DOB", value: v) }
                     if let v = c.nationality { DataRow(label: "Nationality", value: v.uppercased()) }
+                    if let v = c.issuingCountry { DataRow(label: "Issued by", value: v) }
                     if let v = c.expiryDate { DataRow(label: "Expires", value: v) }
+                    if let v = c.documentIssueDate { DataRow(label: "Issued", value: v) }
+                    if let v = c.gender { DataRow(label: "Gender", value: v) }
+                    if let v = c.placeOfBirth { DataRow(label: "Place of birth", value: v) }
+                    if let v = c.personalNumber { DataRow(label: "Personal No.", value: v) }
+                    if let v = c.extractedAddress, !v.isEmpty { DataRow(label: "Address", value: v) }
                 }
                 // Images
                 if let paths = c.documentImagePaths, !paths.isEmpty {
@@ -410,13 +522,11 @@ struct VerificationSheet: View {
                     }
                 }
             }
-            .padding(20)
-        }
+
     }
 
-    // ── Compliance Tab ──
-    private var complianceTab: some View {
-        ScrollView {
+    // ── Compliance Content ──
+    private var complianceContent: some View {
             VStack(alignment: .leading, spacing: 14) {
                 if amlRunning {
                     HStack(spacing: 10) { ProgressView(); Text("Screening in progress...").font(Typo.meta).foregroundStyle(.secondary) }
@@ -461,8 +571,7 @@ struct VerificationSheet: View {
                     .frame(maxWidth: .infinity).padding(.vertical, 24)
                 }
             }
-            .padding(20)
-        }
+
     }
 
     private func runInitialAML() async {
@@ -529,9 +638,8 @@ struct VerificationSheet: View {
         return "Watchlist match"
     }
 
-    // ── Address Tab ──
-    private var addressTab: some View {
-        ScrollView {
+    // ── Address Content ──
+    private var addressContent: some View {
             VStack(alignment: .leading, spacing: 12) {
                 if poaRunning {
                     HStack(spacing: 10) { ProgressView(); Text("Verifying address...").font(Typo.meta).foregroundStyle(.secondary) }
@@ -543,8 +651,6 @@ struct VerificationSheet: View {
                     Text("No address data").font(Typo.meta).foregroundStyle(.quaternary)
                 }
             }
-            .padding(20)
-        }
     }
 
     // ═══════════════════════════════════════════
@@ -552,7 +658,7 @@ struct VerificationSheet: View {
     // ═══════════════════════════════════════════
 
     private func reviewButton(_ label: String, _ color: Color, _ decision: KYCCheck.ReviewDecision) -> some View {
-        Button { pendingReview = decision; showReviewSheet = true } label: {
+        Button { pendingReview = decision } label: {
             Text(label).font(.system(size: 12, weight: .semibold)).frame(maxWidth: .infinity).padding(.vertical, 10)
                 .background(color.opacity(0.08)).foregroundStyle(color)
                 .clipShape(RoundedRectangle(cornerRadius: 10))

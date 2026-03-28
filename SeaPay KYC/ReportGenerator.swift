@@ -30,7 +30,7 @@ enum ReportGenerator {
     private static let pg = CGRect(x: 0, y: 0, width: 595, height: 842)
 
     private static func sc(_ s: KYCCheck.CheckStatus) -> UIColor { s == .passed ? sG : s == .failed ? sR : sA }
-    private static func sn(_ full: String) -> String { let p = full.trimmingCharacters(in: .whitespaces).split(separator: " "); guard let f = p.first else { return full }; return p.count > 1 ? "\(f) \(p.last!.first!.uppercased())." : String(f) }
+    private static func sn(_ full: String) -> String { let p = full.trimmingCharacters(in: .whitespaces).split(separator: " "); guard let f = p.first else { return full }; if let last = p.last, let initial = last.first { return "\(f) \(initial.uppercased())." }; return String(f) }
 
     // ═══════════════════════════════════════════
     // MARK: - Public
@@ -38,7 +38,8 @@ enum ReportGenerator {
 
     static func generatePDF(for check: KYCCheck, documentImages: [UIImage] = []) -> Data {
         let ref = "OC-\(String(check.id.prefix(8)).uppercased())"
-        let agent = sn(check.agentName)
+        let profile = AgentProfile.current
+        let agent = profile?.profileLine ?? sn(check.agentName)
         let hash = computeHash(check)
         var pn = 0
         let edgeColor = sc(check.status)
@@ -129,6 +130,7 @@ enum ReportGenerator {
             txt("VERIFICATION", pt(rightX, ry), .systemFont(ofSize: 7, weight: .bold), mid); ry += 12
             ry = metaRow("Date", (check.completedAt ?? check.createdAt).formatted(date: .long, time: .shortened), at: ry, x: rightX, w: colW)
             ry = metaRow("Officer", agent, at: ry, x: rightX, w: colW)
+            if let aid = profile?.agentId, !aid.isEmpty { ry = metaRow("Agent ID", aid, at: ry, x: rightX, w: colW) }
             ry = metaRow("Classification", "Confidential", at: ry, x: rightX, w: colW)
             if let lat = check.latitude, let lon = check.longitude { ry = metaRow("Location", String(format: "%.4f, %.4f", lat, lon), at: ry, x: rightX, w: colW) }
             ry = metaRow("Report Ref", ref, at: ry, x: rightX, w: colW)
@@ -706,8 +708,8 @@ enum ReportGenerator {
                 }
 
                 let nameParts = (check.extractedName ?? check.customerName).split(separator: " ", maxSplits: 1)
-                let family = nameParts.count > 1 ? String(nameParts.last!) : String(nameParts.first ?? "")
-                let given = nameParts.count > 1 ? String(nameParts.first!) : ""
+                let family = nameParts.count > 1 ? String(nameParts.last ?? "") : String(nameParts.first ?? "")
+                let given = nameParts.count > 1 ? String(nameParts.first ?? "") : ""
                 let passport = (check.documents ?? []).first(where: { $0.type == .passport && !$0.isArchived })
 
                 // Alternating row background

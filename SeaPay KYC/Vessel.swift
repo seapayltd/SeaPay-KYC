@@ -27,6 +27,7 @@ struct Vessel: Identifiable, Codable, Hashable {
 
     // Dimensions (metres)
     var lengthOverall: String
+    var registeredLength: String  // Per IMO: 96% of waterline at 85% moulded depth — used by Malta
     var breadth: String
     var depth: String
     var draught: String
@@ -50,6 +51,32 @@ struct Vessel: Identifiable, Codable, Hashable {
     var registrationDate: String
     var certificateExpiry: String
 
+    // Photo
+    var photoFilename: String?
+    var ownerAccessCode: String?
+
+    // Computed — for requirement thresholds
+    var grossTonnageValue: Double? {
+        Double(grossTonnage.replacingOccurrences(of: ",", with: "").replacingOccurrences(of: " ", with: "").trimmingCharacters(in: .whitespaces))
+    }
+
+    var lengthOverallMetres: Double? {
+        Double(lengthOverall.replacingOccurrences(of: "m", with: "").replacingOccurrences(of: ",", with: "").trimmingCharacters(in: .whitespaces))
+    }
+
+    var registeredLengthValue: Double? {
+        Double(registeredLength.replacingOccurrences(of: "m", with: "").replacingOccurrences(of: ",", with: "").trimmingCharacters(in: .whitespaces))
+    }
+
+    /// Regulatory length: prefers registered length, falls back to LOA
+    var regulatoryLength: Double? {
+        registeredLengthValue ?? lengthOverallMetres
+    }
+
+    var yearBuiltValue: Int? {
+        Int(yearBuilt.trimmingCharacters(in: .whitespaces))
+    }
+
     // App data
     var documents: [CrewDocument]?
     var ownerCheckId: String?
@@ -63,7 +90,7 @@ struct Vessel: Identifiable, Codable, Hashable {
         self.callSign = ""; self.flagState = flagState; self.portOfRegistry = portOfRegistry
         self.vesselType = vesselType; self.certificateNumber = ""
         self.builder = ""; self.yearBuilt = ""; self.hullMaterial = ""; self.vesselDescription = ""
-        self.lengthOverall = ""; self.breadth = ""; self.depth = ""; self.draught = ""
+        self.lengthOverall = ""; self.registeredLength = ""; self.breadth = ""; self.depth = ""; self.draught = ""
         self.grossTonnage = ""; self.netTonnage = ""
         self.propulsionType = ""; self.engineDescription = ""; self.engineMaker = ""
         self.propulsionPower = ""; self.estimatedSpeed = ""
@@ -71,16 +98,76 @@ struct Vessel: Identifiable, Codable, Hashable {
         self.registrationDate = ""; self.certificateExpiry = ""
         self.createdAt = createdAt
     }
+
+    // Custom decoder for backward compatibility — registeredLength may not exist in old JSON
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        imoNumber = try c.decode(String.self, forKey: .imoNumber)
+        officialNumber = try c.decode(String.self, forKey: .officialNumber)
+        callSign = try c.decode(String.self, forKey: .callSign)
+        flagState = try c.decode(String.self, forKey: .flagState)
+        portOfRegistry = try c.decode(String.self, forKey: .portOfRegistry)
+        vesselType = try c.decodeIfPresent(VesselType.self, forKey: .vesselType)
+        certificateNumber = try c.decode(String.self, forKey: .certificateNumber)
+        builder = try c.decode(String.self, forKey: .builder)
+        yearBuilt = try c.decode(String.self, forKey: .yearBuilt)
+        hullMaterial = try c.decode(String.self, forKey: .hullMaterial)
+        vesselDescription = try c.decode(String.self, forKey: .vesselDescription)
+        lengthOverall = try c.decode(String.self, forKey: .lengthOverall)
+        registeredLength = (try? c.decode(String.self, forKey: .registeredLength)) ?? ""  // New field — fallback
+        breadth = try c.decode(String.self, forKey: .breadth)
+        depth = try c.decode(String.self, forKey: .depth)
+        draught = try c.decode(String.self, forKey: .draught)
+        grossTonnage = try c.decode(String.self, forKey: .grossTonnage)
+        netTonnage = try c.decode(String.self, forKey: .netTonnage)
+        propulsionType = try c.decode(String.self, forKey: .propulsionType)
+        engineDescription = try c.decode(String.self, forKey: .engineDescription)
+        engineMaker = try c.decode(String.self, forKey: .engineMaker)
+        propulsionPower = try c.decode(String.self, forKey: .propulsionPower)
+        estimatedSpeed = try c.decode(String.self, forKey: .estimatedSpeed)
+        registeredOwner = try c.decode(String.self, forKey: .registeredOwner)
+        ownerAddress = try c.decode(String.self, forKey: .ownerAddress)
+        registrationDate = try c.decode(String.self, forKey: .registrationDate)
+        certificateExpiry = try c.decode(String.self, forKey: .certificateExpiry)
+        photoFilename = try c.decodeIfPresent(String.self, forKey: .photoFilename)
+        ownerAccessCode = try c.decodeIfPresent(String.self, forKey: .ownerAccessCode)
+        documents = try c.decodeIfPresent([CrewDocument].self, forKey: .documents)
+        ownerCheckId = try c.decodeIfPresent(String.self, forKey: .ownerCheckId)
+        managementCompanyCheckId = try c.decodeIfPresent(String.self, forKey: .managementCompanyCheckId)
+        ownershipStructure = try c.decodeIfPresent(OwnershipStructure.self, forKey: .ownershipStructure)
+        historicalOwnership = try c.decodeIfPresent([HistoricalOwnership].self, forKey: .historicalOwnership)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+    }
 }
 
 // MARK: - UBO Ownership Models
 
+enum OwnershipEntityType: String, Codable, CaseIterable, Identifiable {
+    case company = "Company"
+    case trust = "Trust"
+    case partnership = "Partnership"
+    case soleProprietorship = "Sole Proprietorship"
+    case foundation = "Foundation"
+    var id: String { rawValue }
+}
+
 struct OwnershipStructure: Codable, Hashable {
     var isDirectOwnership: Bool
+    var entityType: OwnershipEntityType?  // nil = company (backward compat)
     var spv: SPVEntity?
     var shareholders: [Shareholder]
     var directors: [Director]
     var uboReportGenerated: Bool = false
+    // Trust-specific
+    var trustees: [Shareholder]?
+    var settlors: [Shareholder]?
+    var protectors: [Shareholder]?
+    var beneficiaries: [Shareholder]?
+    var beneficiaryClass: String?  // For class beneficiaries not yet determinable
+
+    var resolvedEntityType: OwnershipEntityType { entityType ?? .company }
 }
 
 struct SPVEntity: Codable, Hashable {

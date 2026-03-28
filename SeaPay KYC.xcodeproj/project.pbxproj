@@ -253,6 +253,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "SeaPay KYC/SeaPay KYC.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = U9KX7AA93P;
@@ -261,6 +262,7 @@
 				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = OceanCheck;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCameraUsageDescription = "OceanCheck needs camera access to scan identity documents and proof of address.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "OceanCheck records your location when performing verifications for audit purposes.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "OceanCheck needs photo library access to upload identity documents.";
@@ -291,6 +293,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "SeaPay KYC/SeaPay KYC.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = U9KX7AA93P;
@@ -299,6 +302,7 @@
 				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = OceanCheck;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCameraUsageDescription = "OceanCheck needs camera access to scan identity documents and proof of address.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "OceanCheck records your location when performing verifications for audit purposes.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "OceanCheck needs photo library access to upload identity documents.";

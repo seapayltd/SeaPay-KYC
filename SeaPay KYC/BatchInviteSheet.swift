@@ -22,9 +22,7 @@ struct BatchInviteSheet: View {
     }
 
     private var agent: String {
-        let full = UserDefaults.standard.string(forKey: "agentName") ?? "Agent"
-        let p = full.split(separator: " "); guard let f = p.first else { return full }
-        return p.count > 1 ? "\(f) \(p.last!.first!.uppercased())." : String(f)
+        AgentProfile.current?.signatureLine ?? "Agent"
     }
 
     private var shareMessage: String {
@@ -33,7 +31,7 @@ struct BatchInviteSheet: View {
         for r in progress.results {
             if let url = r.url { msg += "\(r.name): \(url)\n" }
         }
-        msg += "\nTakes 2 minutes each.\n\u{2014} \(agent), SeaPay\u{00AE}"
+        msg += "\nTakes 2 minutes each.\n\u{2014} \(agent)"
         return msg
     }
 
@@ -56,11 +54,19 @@ struct BatchInviteSheet: View {
 
     // MARK: - Input
 
+    @State private var showCSVImport = false
+
     private var inputView: some View {
         VStack(spacing: 16) {
             Spacer(minLength: 16)
             Text("Batch Invite").font(Typo.context)
-            Text("One name per line").font(Typo.meta).foregroundStyle(.secondary)
+            Text("One name per line — or import from CSV").font(Typo.meta).foregroundStyle(.secondary)
+
+            Button { showCSVImport = true } label: {
+                Label("Import from CSV", systemImage: "doc.badge.plus").font(Typo.body)
+            }
+            .foregroundStyle(.secondary)
+            .sheet(isPresented: $showCSVImport) { BatchImportSheet(vm: vm, vesselId: vesselId) }
 
             TextEditor(text: $input)
                 .font(Typo.body)

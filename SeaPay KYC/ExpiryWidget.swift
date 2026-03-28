@@ -21,7 +21,9 @@ struct ExpiryWidgetData {
     static let placeholder = ExpiryWidgetData(expiredCount: 0, expiringCount: 2, nextExpiry: "15 Apr 2026", nextExpiryName: "ENG1 — J. Smith")
 
     static func load() -> ExpiryWidgetData {
-        let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        guard let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            return ExpiryWidgetData(expiredCount: 0, expiringCount: 0, nextExpiry: nil, nextExpiryName: nil)
+        }
         let checksFile = docsDir.appendingPathComponent("kyc_checks.json")
 
         guard let data = try? Data(contentsOf: checksFile) else {
@@ -35,28 +37,28 @@ struct ExpiryWidgetData {
 
         let dateFmt = DateFormatter(); dateFmt.dateFormat = "yyyy-MM-dd"
         let now = Date()
-        let cutoff = Calendar.current.date(byAdding: .day, value: 90, to: now)!
+        guard let cutoff = Calendar.current.date(byAdding: .day, value: 90, to: now) else {
+            return ExpiryWidgetData(expiredCount: 0, expiringCount: 0, nextExpiry: nil, nextExpiryName: nil)
+        }
 
         var expired = 0, expiring = 0
         var nextDate: Date?
         var nextName: String?
 
         for check in checks {
-            // ID document expiry
             if let s = check.expiryDate, let d = dateFmt.date(from: s) {
                 if d < now { expired += 1 }
                 else if d <= cutoff {
                     expiring += 1
-                    if nextDate == nil || d < nextDate! { nextDate = d; nextName = "\(check.documentType ?? "ID") — \(check.displayName)" }
+                    if nextDate == nil || d < nextDate ?? .distantFuture { nextDate = d; nextName = "\(check.documentType ?? "ID") — \(check.displayName)" }
                 }
             }
-            // Certificate expiry
-            for doc in check.documents ?? [] where doc.expiryDate != nil && !doc.isArchived {
-                let d = doc.expiryDate!
+            for doc in check.documents ?? [] where !doc.isArchived {
+                guard let d = doc.expiryDate else { continue }
                 if d < now { expired += 1 }
                 else if d <= cutoff {
                     expiring += 1
-                    if nextDate == nil || d < nextDate! { nextDate = d; nextName = "\(doc.type.displayName) — \(check.displayName)" }
+                    if nextDate == nil || d < nextDate ?? .distantFuture { nextDate = d; nextName = "\(doc.type.displayName) — \(check.displayName)" }
                 }
             }
         }

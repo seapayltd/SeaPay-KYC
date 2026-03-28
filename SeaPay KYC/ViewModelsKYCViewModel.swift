@@ -16,13 +16,22 @@ class KYCViewModel: ObservableObject {
     @Published var checks: [KYCCheck] = []
     @Published var vessels: [Vessel] = []
     @Published var isOnline = true
+    @Published var pollingError: String?
+
+    // Transfer log
+    @Published var transferLog: [TransferRecord] = []
+    private var transferLogFile: URL { docsDir.appendingPathComponent("transfer_log.json") }
 
     private let api = VerificationAPIService.shared
     private let netMonitor = NWPathMonitor()
+    private var pollTimers: [String: Timer] = [:]
+    private let imageCache = NSCache<NSString, NSData>()
+    private var deferredBackupTask: Task<Void, Never>?
+    private var didLoad = false
 
     // MARK: - Storage
 
-    var docsDir: URL { FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first! }
+    var docsDir: URL { FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory }
     private var checksFile: URL { docsDir.appendingPathComponent("kyc_checks.json") }
     private var vesselsFile: URL { docsDir.appendingPathComponent("vessels.json") }
     var imagesDir: URL {
@@ -34,14 +43,38 @@ class KYCViewModel: ObservableObject {
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true); return d
     }
 
-    private var pollTimers: [String: Timer] = [:]
-
     init() {
-        load(); loadVessels(); startPollingPendingSessions()
         netMonitor.pathUpdateHandler = { [weak self] path in
             Task { @MainActor [weak self] in self?.isOnline = path.status == .satisfied }
         }
         netMonitor.start(queue: DispatchQueue(label: "net.monitor"))
+    }
+
+    deinit {
+        pollTimers.values.forEach { $0.invalidate() }
+        netMonitor.cancel()
+    }
+
+    /// Call once after first frame renders — loads on background thread
+    func loadIfNeeded() {
+        guard !didLoad else { return }
+        didLoad = true
+        Task.detached { [weak self] in
+            let checksURL = await self?.checksFile
+            let vesselsURL = await self?.vesselsFile
+            let transferURL = await self?.transferLogFile
+            guard let checksURL, let vesselsURL, let transferURL else { return }
+            let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+            let loadedChecks = (try? Data(contentsOf: checksURL)).flatMap { try? decoder.decode([KYCCheck].self, from: $0) } ?? []
+            let loadedVessels = (try? Data(contentsOf: vesselsURL)).flatMap { try? decoder.decode([Vessel].self, from: $0) } ?? []
+            let loadedTransfers = (try? Data(contentsOf: transferURL)).flatMap { try? decoder.decode([TransferRecord].self, from: $0) } ?? []
+            await MainActor.run { [weak self] in
+                self?.checks = loadedChecks
+                self?.vessels = loadedVessels
+                self?.transferLog = loadedTransfers
+                self?.startPollingPendingSessions()
+            }
+        }
     }
 
     private func load() {
@@ -54,8 +87,7 @@ class KYCViewModel: ObservableObject {
         let e = JSONEncoder(); e.dateEncodingStrategy = .iso8601; e.outputFormatting = .prettyPrinted
         try? e.encode(checks).write(to: checksFile)
         objectWillChange.send()
-        NotificationService.shared.rescheduleAll(checks: checks, vessels: vessels)
-        CloudBackupService.shared.backup(checksFile: checksFile, vesselsFile: vesselsFile, imagesDir: imagesDir)
+        deferHeavyWork()
     }
 
     // MARK: - Vessels
@@ -70,7 +102,49 @@ class KYCViewModel: ObservableObject {
         let e = JSONEncoder(); e.dateEncodingStrategy = .iso8601; e.outputFormatting = .prettyPrinted
         try? e.encode(vessels).write(to: vesselsFile)
         objectWillChange.send()
+        deferHeavyWork()
     }
+
+    // MARK: - Transfer Log
+
+    private func loadTransferLog() {
+        guard let data = try? Data(contentsOf: transferLogFile) else { return }
+        let d = JSONDecoder(); d.dateDecodingStrategy = .iso8601
+        transferLog = (try? d.decode([TransferRecord].self, from: data)) ?? []
+    }
+
+    private func saveTransferLog() {
+        let e = JSONEncoder(); e.dateEncodingStrategy = .iso8601; e.outputFormatting = .prettyPrinted
+        try? e.encode(transferLog).write(to: transferLogFile)
+    }
+
+    // MARK: - Deferred Heavy Work (debounced 2s)
+
+    private func deferHeavyWork() {
+        deferredBackupTask?.cancel()
+        deferredBackupTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled, let self else { return }
+            NotificationService.shared.rescheduleAll(checks: self.checks, vessels: self.vessels)
+            CloudBackupService.shared.backup(checksFile: self.checksFile, vesselsFile: self.vesselsFile, imagesDir: self.imagesDir)
+        }
+    }
+
+    // MARK: - Image Cache
+
+    func loadDocumentImage(filename: String) -> Data? {
+        let key = filename as NSString
+        if let cached = imageCache.object(forKey: key) { return cached as Data }
+        guard let data = try? Data(contentsOf: imagesDir.appendingPathComponent(filename)) else { return nil }
+        imageCache.setObject(data as NSData, forKey: key)
+        return data
+    }
+
+    func invalidateImageCache(filename: String) {
+        imageCache.removeObject(forKey: filename as NSString)
+    }
+
+    // MARK: - Vessel CRUD
 
     @discardableResult
     func createVessel(name: String, imoNumber: String = "", flagState: String = "", portOfRegistry: String = "", vesselType: VesselType? = nil) -> Vessel {
@@ -84,28 +158,92 @@ class KYCViewModel: ObservableObject {
     }
 
     func deleteVessel(id: String) {
-        // Unlink checks from this vessel
+        if let vessel = vessels.first(where: { $0.id == id }) {
+            if let photo = vessel.photoFilename {
+                invalidateImageCache(filename: photo)
+                try? FileManager.default.removeItem(at: imagesDir.appendingPathComponent(photo))
+            }
+        }
         for i in checks.indices where checks[i].vesselId == id { checks[i].vesselId = nil }
         save()
         vessels.removeAll { $0.id == id }; saveVessels()
     }
 
-    func checksForVessel(_ vesselId: String) -> [KYCCheck] {
-        checks.filter { $0.vesselId == vesselId }
+    // MARK: - Vessel Photo
+
+    func saveVesselPhoto(vesselId: String, imageData: Data) {
+        let filename = "\(vesselId)_photo.jpg"
+        let compressed: Data
+        if let img = UIImage(data: imageData) {
+            let maxDim: CGFloat = 1200
+            let scale = min(maxDim / max(img.size.width, img.size.height), 1)
+            let size = CGSize(width: img.size.width * scale, height: img.size.height * scale)
+            let renderer = UIGraphicsImageRenderer(size: size)
+            compressed = renderer.jpegData(withCompressionQuality: 0.8) { ctx in img.draw(in: CGRect(origin: .zero, size: size)) }
+        } else { compressed = imageData }
+        try? compressed.write(to: imagesDir.appendingPathComponent(filename))
+        invalidateImageCache(filename: filename)
+        guard let i = vessels.firstIndex(where: { $0.id == vesselId }) else { return }
+        vessels[i].photoFilename = filename
+        saveVessels()
     }
 
-    func seafarersForVessel(_ vesselId: String) -> [KYCCheck] {
-        checks.filter { $0.vesselId == vesselId && $0.entityType.category == .crew }
+    func deleteVesselPhoto(vesselId: String) {
+        guard let i = vessels.firstIndex(where: { $0.id == vesselId }) else { return }
+        if let f = vessels[i].photoFilename {
+            invalidateImageCache(filename: f)
+            try? FileManager.default.removeItem(at: imagesDir.appendingPathComponent(f))
+        }
+        vessels[i].photoFilename = nil
+        saveVessels()
     }
 
-    func complianceChecksForVessel(_ vesselId: String) -> [KYCCheck] {
-        checks.filter { $0.vesselId == vesselId && $0.entityType.category == .ownership }
+    // MARK: - Owner Dashboard (.oceandash)
+
+    func generateOwnerDashboard(vesselId: String) -> URL? {
+        guard let vessel = vessels.first(where: { $0.id == vesselId }) else { return nil }
+        let allChecks = checksForVessel(vesselId)
+        let readiness = vesselDocReadiness(for: vessel)
+        let dateFmt = DateFormatter(); dateFmt.dateFormat = "yyyy-MM-dd"
+        let crewEntries = allChecks.map { check in
+            let docs = check.documents?.filter { !$0.isArchived } ?? []
+            let valid = docs.filter { $0.status == .valid }.count
+            return OwnerCrewEntry(id: check.id, name: check.displayName, rank: check.crewRank?.rawValue, entityType: check.entityType.rawValue,
+                status: check.status == .passed ? "Clear" : check.status == .failed ? "Flagged" : check.status == .requiresReview ? "Review" : "Pending",
+                docRatio: docs.isEmpty ? nil : "\(valid)/\(docs.count)")
+        }
+        let certEntries = (vessel.documents ?? []).filter { !$0.isArchived }.map { doc in
+            OwnerCertEntry(id: doc.id, name: doc.displayName, category: doc.vesselDocType?.category.rawValue ?? "Other",
+                status: doc.status == .valid ? "Valid" : doc.status == .expiringSoon ? "Expiring" : doc.status == .expired ? "Expired" : "Missing",
+                expiryDate: doc.expiryDate.map { dateFmt.string(from: $0) })
+        }
+        let snapshot = OwnerVesselSnapshot(vesselName: vessel.name, vesselType: vessel.vesselType?.rawValue, flagState: vessel.flagState, imoNumber: vessel.imoNumber, grossTonnage: vessel.grossTonnage,
+            certTotal: readiness.total, certComplete: readiness.completed, certExpiring: readiness.expiring, certExpired: readiness.expired,
+            crew: crewEntries, certificates: certEntries, agentName: AgentProfile.current?.fullName ?? "Agent", agentOrganization: AgentProfile.current?.companyName,
+            lastUpdated: Date(), accessCode: vessel.id)
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601; encoder.outputFormatting = .prettyPrinted
+        guard let data = try? encoder.encode(snapshot) else { return nil }
+        let safeName = vessel.name.replacingOccurrences(of: " ", with: "_")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(safeName)_Dashboard.oceandash")
+        try? FileManager.default.removeItem(at: url)
+        try? data.write(to: url)
+        return url
     }
 
-    func shoreBasedForVessel(_ vesselId: String) -> [KYCCheck] {
-        checks.filter { $0.vesselId == vesselId && $0.entityType.category == .shoreBased }
+    static func importOwnerDashboard(from url: URL) -> OwnerVesselSnapshot? {
+        let access = url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        return try? decoder.decode(OwnerVesselSnapshot.self, from: data)
     }
 
+    // MARK: - Queries
+
+    func checksForVessel(_ vesselId: String) -> [KYCCheck] { checks.filter { $0.vesselId == vesselId } }
+    func seafarersForVessel(_ vesselId: String) -> [KYCCheck] { checks.filter { $0.vesselId == vesselId && $0.entityType.category == .crew } }
+    func complianceChecksForVessel(_ vesselId: String) -> [KYCCheck] { checks.filter { $0.vesselId == vesselId && $0.entityType.category == .ownership } }
+    func shoreBasedForVessel(_ vesselId: String) -> [KYCCheck] { checks.filter { $0.vesselId == vesselId && $0.entityType.category == .shoreBased } }
     var unassignedChecks: [KYCCheck] { checks.filter { $0.vesselId == nil } }
 
     func assignCheckToVessel(checkId: String, vesselId: String) {
@@ -131,10 +269,13 @@ class KYCViewModel: ObservableObject {
     }
 
     func deleteCheckById(_ checkId: String) {
+        Haptics.warning()
+        stopPolling(checkId: checkId)
         guard let i = idx(checkId) else { return }
         if let paths = checks[i].documentImagePaths {
-            for p in paths { try? FileManager.default.removeItem(at: imagesDir.appendingPathComponent(p)) }
+            for p in paths { invalidateImageCache(filename: p); try? FileManager.default.removeItem(at: imagesDir.appendingPathComponent(p)) }
         }
+        if let photo = checks[i].profilePhoto { invalidateImageCache(filename: photo) }
         checks.remove(at: i); save()
     }
 
@@ -277,6 +418,83 @@ class KYCViewModel: ObservableObject {
         vessels[i].documents?.removeAll { $0.id == documentId }; saveVessels()
     }
 
+    func renewVesselDocument(vesselId: String, oldDocId: String, newDoc: CrewDocument) {
+        guard let vi = vessels.firstIndex(where: { $0.id == vesselId }) else { return }
+        guard var docs = vessels[vi].documents, let di = docs.firstIndex(where: { $0.id == oldDocId }) else { return }
+        docs[di].renewedAt = Date()
+        var renewed = newDoc; renewed.previousVersionId = oldDocId
+        docs.append(renewed); vessels[vi].documents = docs
+        Haptics.light(); saveVessels()
+    }
+
+    // MARK: - Vessel Document Portfolio
+
+    struct VesselPortfolioItem: Identifiable {
+        var id: String { type.rawValue }
+        let type: VesselDocType; var document: CrewDocument?; let required: Bool; let reason: String?
+    }
+
+    func vesselDocumentPortfolio(for vessel: Vessel) -> [VesselPortfolioItem] {
+        let requirements = FlagStateRequirements.requiredVesselDocs(flag: vessel.flagState, vesselType: vessel.vesselType, grossTonnage: vessel.grossTonnageValue, lengthOverall: vessel.lengthOverallMetres, registeredLength: vessel.registeredLengthValue, yearBuilt: vessel.yearBuiltValue)
+        let existing = (vessel.documents ?? []).filter { !$0.isArchived }
+        let byType: [VesselDocType: CrewDocument] = {
+            var map: [VesselDocType: CrewDocument] = [:]; for doc in existing { if let vdt = doc.vesselDocType, map[vdt] == nil { map[vdt] = doc } }; return map
+        }()
+        let requiredTypes = Set(requirements.map(\.type))
+        var items: [VesselPortfolioItem] = requirements.map { VesselPortfolioItem(type: $0.type, document: byType[$0.type], required: $0.mandatory, reason: $0.reason) }
+        for doc in existing { if let vdt = doc.vesselDocType, !requiredTypes.contains(vdt) { items.append(VesselPortfolioItem(type: vdt, document: doc, required: false, reason: nil)) } }
+        return items
+    }
+
+    func vesselDocReadiness(for vessel: Vessel) -> (completed: Int, total: Int, expiring: Int, expired: Int) {
+        let portfolio = vesselDocumentPortfolio(for: vessel)
+        let required = portfolio.filter(\.required)
+        return (required.filter { $0.document?.status == .valid }.count, required.count, required.filter { $0.document?.status == .expiringSoon }.count, required.filter { $0.document?.status == .expired }.count)
+    }
+
+    // Vessel certificate expiry
+    var expiringVesselDocuments: [(vessel: Vessel, document: CrewDocument)] {
+        let cutoff = Calendar.current.date(byAdding: .day, value: 90, to: Date()) ?? Date()
+        return vessels.flatMap { vessel in (vessel.documents ?? []).compactMap { doc in guard !doc.isArchived, let exp = doc.expiryDate, exp >= Date(), exp <= cutoff else { return nil }; return (vessel, doc) } }
+    }
+
+    var expiredVesselDocuments: [(vessel: Vessel, document: CrewDocument)] {
+        vessels.flatMap { vessel in (vessel.documents ?? []).compactMap { doc in guard !doc.isArchived, let exp = doc.expiryDate, exp < Date() else { return nil }; return (vessel, doc) } }
+    }
+
+    // MARK: - CSV Import
+
+    @discardableResult
+    func importCrewCSV(rows: [CSVImporter.ParsedRow], vesselId: String?) -> [KYCCheck] {
+        var created: [KYCCheck] = []
+        for row in rows where row.isValid {
+            let check = createCheck(customerName: row.name, entityType: row.entityType, vesselId: vesselId, crewRank: row.rank, companyName: row.companyName, jurisdiction: row.jurisdiction, ownershipPercent: row.ownershipPercent)
+            if let i = idx(check.id) {
+                if let nat = row.nationality { checks[i].nationality = nat }
+                if let dob = row.dateOfBirth { checks[i].dateOfBirth = dob }
+                if let pn = row.passportNumber { checks[i].documentNumber = pn }
+                if let pe = row.passportExpiry { checks[i].expiryDate = pe }
+            }
+            created.append(check)
+        }
+        save(); return created
+    }
+
+    // MARK: - Invite Management
+
+    func cancelInviteSession(checkId: String) {
+        stopPolling(checkId: checkId)
+        guard let i = idx(checkId) else { return }
+        checks[i].status = .pending; checks[i].sessionId = nil; checks[i].hostedVerifyURL = nil; save()
+    }
+
+    func refreshPendingSessions() async {
+        for check in checks where check.sessionId != nil && check.status == .inProgress {
+            guard let sid = check.sessionId else { continue }
+            await pollOnce(checkId: check.id, sessionId: sid)
+        }
+    }
+
     // MARK: - Profile Photo
 
     func setProfilePhoto(checkId: String, imageData: Data) {
@@ -369,7 +587,7 @@ class KYCViewModel: ObservableObject {
             "formatVersion": "1.0",
             "scenario": scenario.rawValue,
             "generatedAt": ISO8601DateFormatter().string(from: Date()),
-            "generatedBy": UserDefaults.standard.string(forKey: "agentName") ?? "Agent",
+            "generatedBy": AgentProfile.current?.fullName ?? "Agent",
             "appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "2.0",
             "vesselName": vessel.name,
             "imoNumber": vessel.imoNumber,
@@ -477,6 +695,43 @@ class KYCViewModel: ObservableObject {
         return true
     }
 
+    // MARK: - Transfer Package Preview
+
+    func previewTransferPackage(from url: URL) -> TransferPackagePreview? {
+        guard url.startAccessingSecurityScopedResource() else { return nil }
+        defer { url.stopAccessingSecurityScopedResource() }
+        let fm = FileManager.default
+        let tempDir = docsDir.appendingPathComponent("_transfer_preview")
+        try? fm.removeItem(at: tempDir)
+        try? fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        try? fm.copyItem(at: url, to: tempDir.appendingPathComponent(url.lastPathComponent))
+        defer { try? fm.removeItem(at: tempDir) }
+        guard let manifestFile = findFile("manifest.json", in: tempDir),
+              let manifestData = try? Data(contentsOf: manifestFile),
+              let manifest = try? JSONSerialization.jsonObject(with: manifestData) as? [String: Any] else { return nil }
+        let vesselName = manifest["vesselName"] as? String ?? "Unknown"
+        let vesselIMO = manifest["imoNumber"] as? String ?? ""
+        let hasImages = findDirectory("images", in: tempDir) != nil
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let vf = findFile("vessel.json", in: tempDir)
+        let iv = vf.flatMap { try? Data(contentsOf: $0) }.flatMap { try? decoder.decode(Vessel.self, from: $0) }
+        return TransferPackagePreview(senderName: manifest["generatedBy"] as? String ?? "Unknown", senderOrg: manifest["organization"] as? String ?? "", senderAgentId: manifest["agentId"] as? String ?? "",
+            scenario: manifest["scenario"] as? String ?? "", vesselName: vesselName, vesselIMO: vesselIMO,
+            checksCount: manifest["checksCount"] as? Int ?? 0, hasImages: hasImages, hasOwnership: iv?.ownershipStructure != nil,
+            generatedAt: manifest["generatedAt"] as? String ?? "", formatVersion: manifest["formatVersion"] as? String ?? "1.0",
+            contentHash: manifest["contentHash"] as? String, existsLocally: !vesselIMO.isEmpty && vessels.contains(where: { $0.imoNumber == vesselIMO }),
+            vesselType: manifest["vesselType"] as? String ?? iv?.vesselType?.rawValue)
+    }
+
+    // Enhanced import returning TransferImportResult
+    func importTransferPackageEnhanced(from url: URL) -> TransferImportResult {
+        let success = importTransferPackage(from: url)
+        return TransferImportResult(success: success, vesselId: nil, vesselName: nil, importedCheckIds: [], wasUpdate: false, error: success ? nil : "Import failed")
+    }
+
+    func rollbackImport(transferId: String) -> Bool { false }
+    func reExportTransfer(transferId: String) -> URL? { nil }
+
     // MARK: - Backup Export / Import
 
     func exportBackup() -> URL? {
@@ -487,6 +742,7 @@ class KYCViewModel: ObservableObject {
 
         try? fm.copyItem(at: checksFile, to: backupDir.appendingPathComponent("kyc_checks.json"))
         try? fm.copyItem(at: vesselsFile, to: backupDir.appendingPathComponent("vessels.json"))
+        try? fm.copyItem(at: transferLogFile, to: backupDir.appendingPathComponent("transfer_log.json"))
 
         // Copy images
         let imgsBackup = backupDir.appendingPathComponent("images")
@@ -542,6 +798,10 @@ class KYCViewModel: ObservableObject {
             try? fm.removeItem(at: vesselsFile)
             try? fm.copyItem(at: src, to: vesselsFile)
         }
+        if let src = findFile("transfer_log.json", in: tempDir) {
+            try? fm.removeItem(at: transferLogFile)
+            try? fm.copyItem(at: src, to: transferLogFile)
+        }
 
         // Restore images
         let imgsSource = findDirectory("images", in: tempDir)
@@ -555,7 +815,7 @@ class KYCViewModel: ObservableObject {
         }
 
         try? fm.removeItem(at: tempDir)
-        load(); loadVessels()
+        load(); loadVessels(); loadTransferLog()
         return checksSource != nil
     }
 
@@ -600,13 +860,14 @@ class KYCViewModel: ObservableObject {
 
     func createBatchInvites(names: [String], vesselId: String?) -> AsyncStream<BatchProgress> {
         AsyncStream { continuation in
-            Task {
+            Task { [weak self] in
+                guard let self else { continuation.finish(); return }
                 var progress = BatchProgress(total: names.count, completed: 0, results: [])
                 for name in names {
-                    let check = createCheck(customerName: name)
-                    if let vid = vesselId { assignCheckToVessel(checkId: check.id, vesselId: vid) }
+                    let check = self.createCheck(customerName: name)
+                    if let vid = vesselId { self.assignCheckToVessel(checkId: check.id, vesselId: vid) }
                     do {
-                        let r = try await createInviteSession(checkId: check.id)
+                        let r = try await self.createInviteSession(checkId: check.id)
                         progress.results.append((name, r.verifyURL, nil))
                     } catch {
                         progress.results.append((name, nil, error.localizedDescription))
@@ -685,7 +946,7 @@ class KYCViewModel: ObservableObject {
             customerId: "",
             customerName: customerName,
             agentId: "",
-            agentName: UserDefaults.standard.string(forKey: "agentName") ?? "Agent",
+            agentName: AgentProfile.current?.fullName ?? "Agent",
             checkType: .idVerification,
             status: .pending,
             entityType: entityType,
@@ -762,18 +1023,26 @@ class KYCViewModel: ObservableObject {
                 checks[i].status = .passed
             } else if s == "declined" || s == "rejected" || s == "failed" {
                 checks[i].status = .failed
+            } else if s == "expired" {
+                checks[i].status = .incomplete
             }
 
-            // Extract data from decision
+            // Extract ALL data from decision
             if let idResult = decision.idVerifications?.first {
                 checks[i].extractedName = idResult.extractedFullName
-                if !idResult.extractedFullName.isEmpty {
-                    checks[i].customerName = idResult.extractedFullName
-                }
+                if !idResult.extractedFullName.isEmpty { checks[i].customerName = idResult.extractedFullName }
                 checks[i].documentType = idResult.documentType
                 checks[i].documentNumber = idResult.documentNumber
                 checks[i].dateOfBirth = idResult.dateOfBirth
+                checks[i].expiryDate = idResult.expirationDate
                 checks[i].nationality = idResult.nationality
+                checks[i].issuingCountry = idResult.issuingStateName ?? idResult.issuingState
+                checks[i].gender = idResult.gender
+                checks[i].documentIssueDate = idResult.dateOfIssue
+                checks[i].placeOfBirth = idResult.placeOfBirth
+                checks[i].personalNumber = idResult.personalNumber
+                checks[i].extractedAddress = idResult.formattedAddress ?? idResult.address
+                checks[i].idWarnings = idResult.warnings?.compactMap { $0.shortDescription ?? $0.risk }
                 if let dn = idResult.documentNumber { checks[i].customerId = dn }
             }
             if let amlResult = decision.aml?.first {
@@ -800,7 +1069,8 @@ class KYCViewModel: ObservableObject {
 
     private func startPollingPendingSessions() {
         for check in checks where check.sessionId != nil && check.status == .inProgress {
-            startPolling(checkId: check.id, sessionId: check.sessionId!)
+            guard let sid = check.sessionId else { continue }
+            startPolling(checkId: check.id, sessionId: sid)
         }
     }
 
@@ -822,14 +1092,14 @@ class KYCViewModel: ObservableObject {
 
     private func pollOnce(checkId: String, sessionId: String) async {
         do {
+            pollingError = nil
             let decision = try await pollSessionDecision(checkId: checkId, sessionId: sessionId)
             if isTerminalStatus(decision.status) {
                 stopPolling(checkId: checkId)
-                let pdfURL = generateReport(checkId: checkId)
-                print("[OceanCheck] Poll complete. PDF generated: \(pdfURL?.absoluteString ?? "FAILED")")
+                _ = generateReport(checkId: checkId)
             }
         } catch {
-            print("[OceanCheck] Poll error for \(checkId.prefix(8)): \(error.localizedDescription)")
+            pollingError = "Verification check failed: \(error.localizedDescription)"
         }
     }
 
@@ -868,6 +1138,12 @@ class KYCViewModel: ObservableObject {
         checks[i].dateOfBirth = id?.dateOfBirth
         checks[i].expiryDate = id?.expiryDate
         checks[i].nationality = id?.nationality
+        checks[i].issuingCountry = id?.issuingStateName ?? id?.issuingState
+        checks[i].gender = id?.gender
+        checks[i].documentIssueDate = id?.dateOfIssue
+        checks[i].placeOfBirth = id?.placeOfBirth
+        checks[i].personalNumber = id?.personalNumber
+        checks[i].extractedAddress = id?.formattedAddress ?? id?.address
         checks[i].idWarnings = id?.warnings?.compactMap { $0.shortDescription ?? $0.risk }
         checks[i].rawIDResponse = String(data: idRaw, encoding: .utf8)
         if let dn = id?.documentNumber { checks[i].customerId = dn }
@@ -994,7 +1270,7 @@ class KYCViewModel: ObservableObject {
         checks[i].reviewDecision = decision
         checks[i].reviewReason = reason
         checks[i].reviewedAt = Date()
-        checks[i].reviewedBy = UserDefaults.standard.string(forKey: "agentName") ?? "Agent"
+        checks[i].reviewedBy = AgentProfile.current?.fullName ?? "Agent"
 
         // Override status based on review
         switch decision {
@@ -1020,9 +1296,7 @@ class KYCViewModel: ObservableObject {
         return paths
     }
 
-    func loadDocumentImage(filename: String) -> Data? {
-        try? Data(contentsOf: imagesDir.appendingPathComponent(filename))
-    }
+    // loadDocumentImage is defined above with caching
 
     // MARK: - Delete
 
@@ -1039,12 +1313,13 @@ class KYCViewModel: ObservableObject {
 
     func resetAll() {
         KeychainService.deleteAll()
-        UserDefaults.standard.removeObject(forKey: "agentName")
+        AgentProfile.delete()
         try? FileManager.default.removeItem(at: checksFile)
         try? FileManager.default.removeItem(at: vesselsFile)
+        try? FileManager.default.removeItem(at: transferLogFile)
         try? FileManager.default.removeItem(at: imagesDir)
         try? FileManager.default.removeItem(at: reportsDir)
-        checks = []; vessels = []
+        checks = []; vessels = []; transferLog = []
     }
 
     // MARK: - PDF

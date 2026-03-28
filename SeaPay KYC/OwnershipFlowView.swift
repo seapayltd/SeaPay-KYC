@@ -14,6 +14,9 @@ struct OwnershipFlowView: View {
     let vesselId: String
     @Environment(\.dismiss) private var dismiss
 
+    // Ownership type
+    @State private var ownershipType: OwnershipEntityType = .company
+
     // Ownership tree (builds as documents are uploaded)
     @State private var entities: [OwnershipEntity] = []
     @State private var persons: [OwnershipPerson] = []
@@ -40,6 +43,31 @@ struct OwnershipFlowView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 0) {
+                    // Entity type selector
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("OWNERSHIP TYPE").font(Typo.meta).foregroundStyle(.secondary).tracking(0.6)
+                            .padding(.horizontal, 20)
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(OwnershipEntityType.allCases) { type in
+                                    Button {
+                                        withAnimation(.smooth(duration: 0.2)) { ownershipType = type }
+                                    } label: {
+                                        Text(type.rawValue)
+                                            .font(Typo.meta).fontWeight(.medium)
+                                            .foregroundStyle(ownershipType == type ? Color.surface : .secondary)
+                                            .padding(.horizontal, 14).padding(.vertical, 8)
+                                            .background(ownershipType == type ? Color.primary : Color.surfaceMuted)
+                                            .clipShape(Capsule())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.horizontal, 20)
+                        }
+                    }
+                    .padding(.vertical, 12)
+
                     // Upload button — always at top
                     uploadSection
 
@@ -148,10 +176,20 @@ struct OwnershipFlowView: View {
             Text("Upload your first document").font(Typo.context)
             VStack(spacing: 6) {
                 Text("Start with any of these:").font(Typo.meta).foregroundStyle(.secondary)
-                docHint("Certificate of Incorporation")
-                docHint("Shareholder Register")
-                docHint("Articles of Association")
-                docHint("Passport of a known owner")
+                if ownershipType == .trust {
+                    docHint("Trust Deed / Agreement")
+                    docHint("Beneficiary List")
+                    docHint("Trustee Passport")
+                    docHint("Settlor Identification")
+                } else if ownershipType == .partnership {
+                    docHint("Partnership Agreement")
+                    docHint("Partner Passport")
+                } else {
+                    docHint("Certificate of Incorporation")
+                    docHint("Shareholder Register")
+                    docHint("Articles of Association")
+                    docHint("Passport of a known owner")
+                }
             }
             Spacer(minLength: 40)
         }
@@ -168,44 +206,105 @@ struct OwnershipFlowView: View {
 
     private var ownershipTree: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Entities (companies)
+            // Summary card
+            let totalUBOs = ubos.count
+            let unverifiedUBOs = ubos.filter { $0.checkId == nil }
+            let totalPersons = persons.count
+            let verifiedPersons = persons.filter { $0.checkId != nil }.count
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: unverifiedUBOs.isEmpty && totalUBOs > 0 ? "checkmark.shield" : "exclamationmark.triangle")
+                        .font(.system(size: 14))
+                        .foregroundStyle(unverifiedUBOs.isEmpty && totalUBOs > 0 ? Color.clear_ : Color.review)
+                    Text(unverifiedUBOs.isEmpty && totalUBOs > 0
+                         ? "All UBOs verified"
+                         : totalUBOs == 0
+                         ? "\(totalPersons) person\(totalPersons == 1 ? "" : "s") identified"
+                         : "\(totalUBOs) UBO\(totalUBOs == 1 ? "" : "s") identified, \(unverifiedUBOs.count) passport\(unverifiedUBOs.count == 1 ? "" : "s") needed"
+                    )
+                    .font(Typo.body).fontWeight(.medium)
+                }
+                if totalPersons > 0 {
+                    ProgressBar(value: verifiedPersons, total: totalPersons)
+                    Text("\(verifiedPersons)/\(totalPersons) persons verified").font(Typo.meta).foregroundStyle(.secondary)
+                }
+            }
+            .padding(14)
+            .background((unverifiedUBOs.isEmpty && totalUBOs > 0 ? Color.clear_ : Color.review).opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .padding(.horizontal, 16).padding(.bottom, 12)
+
+            // Analysis result banner
+            if !analysisResult.isEmpty {
+                HStack(spacing: 8) {
+                    Image(systemName: "brain").font(Typo.meta).foregroundStyle(Color.clear_)
+                    Text(analysisResult).font(Typo.meta).foregroundStyle(.secondary).lineLimit(2)
+                    Spacer()
+                }
+                .padding(10)
+                .background(Color.clear_.opacity(0.04))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .padding(.horizontal, 16).padding(.bottom, 8)
+            }
+
+            // Entities (companies/trusts)
             if !entities.isEmpty {
-                sectionHeader("CORPORATE ENTITIES")
+                sectionHeader(ownershipType == .trust ? "TRUST ENTITY" : "CORPORATE ENTITIES")
                 ForEach($entities) { $entity in
                     entityRow(entity)
                 }
             }
 
-            // Persons (shareholders, directors, UBOs)
+            // Persons — grouped by role for trusts, flat for companies
             if !persons.isEmpty {
-                sectionHeader("PERSONS IDENTIFIED")
-                ForEach($persons) { $person in
-                    personRow($person)
+                if ownershipType == .trust {
+                    let trustees = persons.filter { $0.role == .trustee }
+                    let settlors = persons.filter { $0.role == .settlor }
+                    let protectors = persons.filter { $0.role == .protector }
+                    let beneficiaries = persons.filter { $0.role == .beneficiary }
+                    let others = persons.filter { [.shareholder, .director, .corporateShareholder].contains($0.role) }
+
+                    if !settlors.isEmpty { trustRoleSection("SETTLORS", persons: settlors) }
+                    if !trustees.isEmpty { trustRoleSection("TRUSTEES", persons: trustees) }
+                    if !protectors.isEmpty { trustRoleSection("PROTECTORS", persons: protectors) }
+                    if !beneficiaries.isEmpty { trustRoleSection("BENEFICIARIES", persons: beneficiaries) }
+                    if !others.isEmpty { trustRoleSection("OTHER PERSONS", persons: others) }
+                } else {
+                    sectionHeader("PERSONS IDENTIFIED")
+                    ForEach($persons) { $person in
+                        personRow($person)
+                    }
                 }
             }
 
-            // What's missing
-            let unverifiedUBOs = ubos.filter { $0.checkId == nil }
+            // Action required — unverified UBOs
             if !unverifiedUBOs.isEmpty {
                 sectionHeader("ACTION REQUIRED")
                 ForEach(unverifiedUBOs) { person in
-                    HStack(spacing: 10) {
-                        Image(systemName: "exclamationmark.triangle.fill").font(Typo.meta).foregroundStyle(Color.review)
-                        Text("\(person.name) — \(String(format: "%.0f", person.ownershipPercent))% owner, passport needed")
-                            .font(Typo.meta).foregroundStyle(Color.review)
+                    HStack(spacing: 0) {
+                        RoundedRectangle(cornerRadius: 1.5).fill(Color.review)
+                            .frame(width: 3, height: 32)
+                            .padding(.trailing, 10).padding(.leading, 16)
+                        HStack(spacing: 10) {
+                            Image(systemName: "exclamationmark.triangle.fill").font(Typo.meta).foregroundStyle(Color.review)
+                            Text("\(person.name) — \(String(format: "%.0f", person.ownershipPercent))% owner, passport needed")
+                                .font(Typo.meta).foregroundStyle(Color.review)
+                        }
                     }
-                    .padding(.horizontal, 20).padding(.vertical, 6)
+                    .padding(.vertical, 6)
                 }
             }
+        }
+    }
 
-            // Analysis result (last AI response)
-            if !analysisResult.isEmpty {
-                HStack(spacing: 8) {
-                    Image(systemName: "brain").font(Typo.meta).foregroundStyle(Color.clear_)
-                    Text(analysisResult).font(Typo.meta).foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 20).padding(.vertical, 10)
-                .background(Color.clear_.opacity(0.04))
+    @ViewBuilder
+    private func trustRoleSection(_ title: String, persons: [OwnershipPerson]) -> some View {
+        sectionHeader(title)
+        ForEach(persons) { person in
+            // Can't use $person with local array — use by-id lookup
+            if let idx = self.persons.firstIndex(where: { $0.id == person.id }) {
+                personRow($persons[idx])
             }
         }
     }
@@ -263,7 +362,7 @@ struct OwnershipFlowView: View {
                 // Verify or invite — for any natural person
                 Menu {
                     Button {
-                        let et: KYCCheck.EntityType = isUBO ? .ubo : p.role == .director ? .directorOfficer : .owner
+                        let et: KYCCheck.EntityType = isUBO ? .ubo : p.role == .director ? .directorOfficer : p.role == .trustee ? .trustee : p.role == .settlor ? .settlor : p.role == .protector ? .protector : p.role == .beneficiary ? .beneficiary : .owner
                         let check = vm.createCheck(customerName: p.name, entityType: et, vesselId: vesselId, ownershipPercent: p.ownershipPercent > 0 ? p.ownershipPercent : nil)
                         person.wrappedValue.checkId = check.id
                         activeCheck = check
@@ -271,7 +370,7 @@ struct OwnershipFlowView: View {
 
                     if AppConfiguration.hasWorkflow && vm.isOnline {
                         Button {
-                            let et: KYCCheck.EntityType = isUBO ? .ubo : p.role == .director ? .directorOfficer : .owner
+                            let et: KYCCheck.EntityType = isUBO ? .ubo : p.role == .director ? .directorOfficer : p.role == .trustee ? .trustee : p.role == .settlor ? .settlor : p.role == .protector ? .protector : p.role == .beneficiary ? .beneficiary : .owner
                             let check = vm.createCheck(customerName: p.name, entityType: et, vesselId: vesselId, ownershipPercent: p.ownershipPercent > 0 ? p.ownershipPercent : nil)
                             person.wrappedValue.checkId = check.id
                             inviteCheck = check
@@ -327,20 +426,34 @@ struct OwnershipFlowView: View {
             return
         }
 
+        let trustContext = ownershipType == .trust ? """
+        This is a TRUST structure. Also extract trust-specific roles:
+          "trustees": [{"name": "...", "is_company": false}],
+          "settlors": [{"name": "..."}],
+          "protectors": [{"name": "..."}],
+          "beneficiaries": [{"name": "...", "percent": 0.0, "is_determinable": true}],
+          "beneficiary_class": "Description of class beneficiaries if not individually named (e.g., 'Issue of the Settlor')"
+        """ : ""
+
         let prompt = """
         Analyze this document for corporate ownership / KYC purposes. Determine what type of document it is and extract ALL relevant information.
-
+        \(trustContext)
         Return ONLY JSON:
         {
-          "document_type": "certificate_of_incorporation | shareholder_register | articles_of_association | passport | trust_deed | board_resolution | certificate_of_good_standing | nominee_declaration | other | not_a_document",
+          "document_type": "certificate_of_incorporation | shareholder_register | articles_of_association | passport | trust_deed | board_resolution | certificate_of_good_standing | certificate_of_incumbency | partnership_agreement | nominee_declaration | ubo_registry | other | not_a_document",
           "company": {"name": "...", "jurisdiction": "...", "registration_number": "...", "incorporation_date": "..."},
           "shareholders": [{"name": "...", "percent": 0.0, "is_company": false}],
           "directors": [{"name": "..."}],
+          "trustees": [{"name": "...", "is_company": false}],
+          "settlors": [{"name": "..."}],
+          "protectors": [{"name": "..."}],
+          "beneficiaries": [{"name": "...", "percent": 0.0}],
+          "beneficiary_class": "...",
           "person": {"name": "...", "nationality": "...", "date_of_birth": "...", "document_number": "..."},
           "summary": "One-line description of what was found"
         }
 
-        Set any section to null if not applicable. For passports, fill the person field. For corporate docs, fill company/shareholders/directors.
+        Set any section to null if not applicable. For passports, fill the person field. For corporate docs, fill company/shareholders/directors. For trust deeds, fill trustees/settlors/protectors/beneficiaries.
         """
 
         do {
@@ -402,6 +515,19 @@ struct OwnershipFlowView: View {
                     }
                 }
 
+                // Extract trust roles
+                for (key, role) in [("trustees", OwnershipPerson.Role.trustee), ("settlors", .settlor), ("protectors", .protector), ("beneficiaries", .beneficiary)] {
+                    if let arr = json[key] as? [[String: Any]] {
+                        for item in arr {
+                            guard let name = item["name"] as? String, !name.isEmpty else { continue }
+                            if !persons.contains(where: { $0.name.lowercased() == name.lowercased() }) {
+                                let pct = item["percent"] as? Double ?? 0
+                                persons.append(OwnershipPerson(name: name, ownershipPercent: pct, role: role))
+                            }
+                        }
+                    }
+                }
+
                 // Extract passport person
                 if let person = json["person"] as? [String: Any], let name = person["name"] as? String, !name.isEmpty {
                     if persons.contains(where: { $0.name.lowercased() == name.lowercased() }) {
@@ -426,6 +552,9 @@ struct OwnershipFlowView: View {
     private func loadExisting() {
         // Restore from saved structure if exists
         if let os = vessel?.ownershipStructure {
+            // Restore entity type
+            ownershipType = os.resolvedEntityType
+
             if let spv = os.spv {
                 entities = [OwnershipEntity(name: spv.name, jurisdiction: spv.jurisdiction, registrationNumber: spv.registrationNumber, incorporationDate: spv.incorporationDate, documentType: "")]
             }
@@ -433,6 +562,19 @@ struct OwnershipFlowView: View {
                 OwnershipPerson(id: sh.id, name: sh.name, ownershipPercent: sh.ownershipPercent, role: sh.isCompany ? .corporateShareholder : .shareholder, checkId: sh.checkId)
             } + os.directors.map { dir in
                 OwnershipPerson(id: dir.id, name: dir.name, ownershipPercent: 0, role: .director, checkId: dir.checkId)
+            }
+            // Restore trust persons
+            persons += (os.trustees ?? []).map { sh in
+                OwnershipPerson(id: sh.id, name: sh.name, ownershipPercent: sh.ownershipPercent, role: .trustee, checkId: sh.checkId)
+            }
+            persons += (os.settlors ?? []).map { sh in
+                OwnershipPerson(id: sh.id, name: sh.name, ownershipPercent: sh.ownershipPercent, role: .settlor, checkId: sh.checkId)
+            }
+            persons += (os.protectors ?? []).map { sh in
+                OwnershipPerson(id: sh.id, name: sh.name, ownershipPercent: sh.ownershipPercent, role: .protector, checkId: sh.checkId)
+            }
+            persons += (os.beneficiaries ?? []).map { sh in
+                OwnershipPerson(id: sh.id, name: sh.name, ownershipPercent: sh.ownershipPercent, role: .beneficiary, checkId: sh.checkId)
             }
             return
         }
@@ -458,15 +600,27 @@ struct OwnershipFlowView: View {
     private func saveStructure() {
         let spv = entities.first.map { SPVEntity(name: $0.name, jurisdiction: $0.jurisdiction, registrationNumber: $0.registrationNumber, incorporationDate: $0.incorporationDate, documentPaths: []) }
 
-        let shareholders = persons.filter { $0.role != .director }.map { p in
+        func toShareholder(_ p: OwnershipPerson) -> Shareholder {
             var sh = Shareholder(id: p.id, name: p.name, ownershipPercent: p.ownershipPercent, isCompany: p.role == .corporateShareholder)
             sh.checkId = p.checkId; return sh
         }
+
+        let shareholders = persons.filter { [.shareholder, .corporateShareholder].contains($0.role) }.map(toShareholder)
         let directors = persons.filter { $0.role == .director }.map { p in
             var dir = Director(id: p.id, name: p.name); dir.checkId = p.checkId; return dir
         }
 
-        let structure = OwnershipStructure(isDirectOwnership: entities.isEmpty && persons.count <= 1, spv: spv, shareholders: shareholders, directors: directors)
+        var structure = OwnershipStructure(isDirectOwnership: entities.isEmpty && persons.count <= 1, spv: spv, shareholders: shareholders, directors: directors)
+        structure.entityType = ownershipType
+
+        // Trust-specific arrays
+        if ownershipType == .trust {
+            structure.trustees = persons.filter { $0.role == .trustee }.map(toShareholder)
+            structure.settlors = persons.filter { $0.role == .settlor }.map(toShareholder)
+            structure.protectors = persons.filter { $0.role == .protector }.map(toShareholder)
+            structure.beneficiaries = persons.filter { $0.role == .beneficiary }.map(toShareholder)
+        }
+
         guard var v = vessel else { return }
         v.ownershipStructure = structure
         vm.updateVessel(v)
@@ -498,5 +652,5 @@ struct OwnershipPerson: Identifiable, Hashable {
     var role: Role
     var checkId: String?
 
-    enum Role: String, Hashable { case shareholder = "Shareholder", corporateShareholder = "Corporate", director = "Director" }
+    enum Role: String, Hashable { case shareholder = "Shareholder", corporateShareholder = "Corporate", director = "Director", trustee = "Trustee", settlor = "Settlor", protector = "Protector", beneficiary = "Beneficiary" }
 }

@@ -2,10 +2,11 @@
 //  VesselDetailView.swift
 //  OceanCheck
 //
-//  Vessel documents + crew list with avatars, add crew, transfer, export.
+//  Vessel detail with hero photo, stats progress bars, crew, compliance.
 //
 
 import SwiftUI
+import PhotosUI
 import UniformTypeIdentifiers
 import PDFKit
 
@@ -28,77 +29,133 @@ struct VesselDetailView: View {
     @State private var editName = ""
     @State private var showEditVessel = false
     @State private var showDeleteConfirm = false
+    @State private var checkToDelete: KYCCheck?
     @State private var showExportCrewList = false
     @State private var showShareVesselData = false
+    @State private var showOwnerShare = false
+    @State private var showPhotoPicker = false
+    @State private var selectedPhoto: PhotosPickerItem?
 
     private var v: Vessel { vm.vessels.first(where: { $0.id == vessel.id }) ?? vessel }
     private var crew: [KYCCheck] { vm.checksForVessel(vessel.id) }
-    private var seafarerCrew: [KYCCheck] { crew.filter { $0.entityType.category == .crew } }
-    private var shoreBasedPersonnel: [KYCCheck] { crew.filter { $0.entityType.category == .shoreBased } }
-    private var complianceEntities: [KYCCheck] { crew.filter { $0.entityType.category == .ownership } }
+    private var seafarerCrew: [KYCCheck] { crew.filter { $0.entityType.category == .crew }.sorted { statusPriority($0.status) < statusPriority($1.status) } }
+    private var shoreBasedPersonnel: [KYCCheck] { crew.filter { $0.entityType.category == .shoreBased }.sorted { statusPriority($0.status) < statusPriority($1.status) } }
+    private var complianceEntities: [KYCCheck] { crew.filter { $0.entityType.category == .ownership }.sorted { statusPriority($0.status) < statusPriority($1.status) } }
+
+    private func statusPriority(_ status: KYCCheck.CheckStatus) -> Int {
+        switch status {
+        case .failed: return 0
+        case .requiresReview: return 1
+        case .pending: return 2
+        case .inProgress: return 3
+        case .incomplete: return 4
+        case .passed: return 5
+        }
+    }
     private var crewPassedCount: Int { seafarerCrew.filter { $0.status == .passed }.count }
     private var compliancePassedCount: Int { complianceEntities.filter { $0.status == .passed }.count }
     private var vesselDocs: [CrewDocument] { v.documents ?? [] }
     private var unassigned: [KYCCheck] { vm.unassignedChecks }
 
+    private var vesselPhotoData: Data? {
+        v.photoFilename.flatMap { vm.loadDocumentImage(filename: $0) }
+    }
+
+    // Cached once per render — used by stats + certificateSections
+    private var certReadinessCache: (completed: Int, total: Int, expiring: Int, expired: Int) {
+        vm.vesselDocReadiness(for: v)
+    }
+
     var body: some View {
         List {
-            // Vessel header — compact, informative
+            // Hero header with photo
             Section {
-                VStack(alignment: .leading, spacing: 8) {
-                    if let vt = v.vesselType {
-                        Label(vt.rawValue, systemImage: vt.icon).font(Typo.meta).foregroundStyle(.secondary)
+                VStack(spacing: 0) {
+                    // Photo or fallback
+                    PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                        ZStack(alignment: .bottomLeading) {
+                            if let data = vesselPhotoData, let img = UIImage(data: data) {
+                                Image(uiImage: img).resizable().scaledToFill()
+                                    .frame(height: 200).frame(maxWidth: .infinity)
+                                    .clipped()
+                                    .overlay(alignment: .bottom) {
+                                        LinearGradient(colors: [.clear, .black.opacity(0.5)], startPoint: .center, endPoint: .bottom)
+                                            .frame(height: 100)
+                                    }
+                                // Name overlaid on photo
+                                Text(v.name).font(Typo.hero).foregroundStyle(.white)
+                                    .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
+                                    .padding(.horizontal, 18).padding(.bottom, 14)
+                            } else {
+                                VStack(spacing: 12) {
+                                    Image(systemName: v.vesselType?.icon ?? "ferry")
+                                        .font(.system(size: 40)).foregroundStyle(.quaternary)
+                                    Text("Tap to add photo").font(Typo.meta).foregroundStyle(.tertiary)
+                                }
+                                .frame(height: 160).frame(maxWidth: .infinity)
+                                .background(Color.surfaceMuted)
+                            }
+                        }
                     }
-                    HStack(spacing: 12) {
-                        if !v.imoNumber.isEmpty { Label("IMO \(v.imoNumber)", systemImage: "number").font(Typo.meta).foregroundStyle(.tertiary) }
-                        if !v.flagState.isEmpty { Label(v.flagState, systemImage: "flag").font(Typo.meta).foregroundStyle(.tertiary) }
+                    .onChange(of: selectedPhoto) { _, item in
+                        Task { await loadVesselPhoto(item) }
                     }
-                }
-                .listRowBackground(Color.clear)
 
-                // Stats — separated by crew vs compliance
-                if !crew.isEmpty {
-                    let crewDocs = seafarerCrew.flatMap { $0.documents ?? [] }.filter { !$0.isArchived }
-                    let crewDocsValid = crewDocs.filter { $0.status == .valid }.count
-                    HStack(spacing: 16) {
-                        statPill("\(crewPassedCount)/\(seafarerCrew.count)", "Crew", crewPassedCount == seafarerCrew.count && !seafarerCrew.isEmpty ? .clear_ : .secondary)
+                    // Metadata pills
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            if let vt = v.vesselType {
+                                MetadataPill(icon: vt.icon, text: vt.rawValue)
+                            }
+                            if !v.imoNumber.isEmpty {
+                                MetadataPill(icon: "number", text: "IMO \(v.imoNumber)")
+                            }
+                            if !v.flagState.isEmpty {
+                                MetadataPill(icon: "flag", text: v.flagState)
+                            }
+                            if !v.portOfRegistry.isEmpty {
+                                MetadataPill(icon: "mappin", text: v.portOfRegistry)
+                            }
+                            if !v.registeredLength.isEmpty {
+                                MetadataPill(icon: "ruler", text: "RL \(v.registeredLength)m")
+                            }
+                        }
+                        .padding(.horizontal, 16).padding(.vertical, 10)
+                    }
+
+                    // Quick action buttons
+                    HStack(spacing: 0) {
+                        quickAction("person.badge.plus", "Add Crew") { showAddCrew = true }
+                        quickAction("doc.badge.plus", "Add Cert") { addVesselDoc = true }
+                        quickAction("square.and.arrow.up", "Share") { showShareVesselData = true }
+                        quickAction("pencil", "Edit") { showEditVessel = true }
+                    }
+                    .padding(.horizontal, 8).padding(.bottom, 10)
+                }
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+            }
+
+            // Stats with progress bars
+            Section {
+                HStack(spacing: 0) {
+                    statWithBar("Certs", certReadinessCache.completed, certReadinessCache.total)
+                    if !crew.isEmpty {
+                        statWithBar("Crew", crewPassedCount, seafarerCrew.count)
+                        let crewDocs = seafarerCrew.flatMap { $0.documents ?? [] }.filter { !$0.isArchived }
+                        let crewDocsValid = crewDocs.filter { $0.status == .valid }.count
                         if !crewDocs.isEmpty {
-                            statPill("\(crewDocsValid)/\(crewDocs.count)", "Docs", crewDocsValid == crewDocs.count ? .clear_ : .secondary)
+                            statWithBar("Docs", crewDocsValid, crewDocs.count)
                         }
-                        if !complianceEntities.isEmpty {
-                            statPill("\(compliancePassedCount)/\(complianceEntities.count)", "Compliance", compliancePassedCount == complianceEntities.count ? .clear_ : .secondary)
-                        }
-                        Spacer()
+                    }
+                    if !complianceEntities.isEmpty {
+                        statWithBar("Compliance", compliancePassedCount, complianceEntities.count)
                     }
                 }
             }
 
-            // Vessel certificates
-            Section {
-                ForEach(vesselDocs) { doc in
-                    Button { selectedVesselDoc = doc } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: doc.docIcon).font(.system(size: 14)).foregroundStyle(doc.statusColor).frame(width: 22)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(doc.displayName).font(Typo.body).lineLimit(1).foregroundStyle(.primary)
-                                HStack(spacing: 8) {
-                                    if let exp = doc.expiryDate { Text(exp.formatted(date: .abbreviated, time: .omitted)).font(Typo.meta).foregroundStyle(doc.statusColor) }
-                                    if let num = doc.documentNumber, !num.isEmpty { Text(num).font(Typo.meta).foregroundStyle(.secondary) }
-                                }
-                            }
-                            Spacer()
-                            if !doc.imagePaths.isEmpty { Image(systemName: "doc.fill").font(Typo.meta).foregroundStyle(.tertiary) }
-                            Image(systemName: "chevron.right").font(.system(size: 10)).foregroundStyle(.quaternary)
-                        }
-                    }
-                    .swipeActions(edge: .trailing) {
-                        Button(role: .destructive) { vm.removeVesselDocument(vesselId: vessel.id, documentId: doc.id) } label: { Label("Remove", systemImage: "trash") }
-                    }
-                }
-                Button { addVesselDoc = true } label: {
-                    Label("Add certificate", systemImage: "plus.circle").font(Typo.body).foregroundStyle(.secondary)
-                }
-            } header: { Text("Vessel Certificates") }
+            // GT warning + Certificates
+            certificateSections
 
             // Crew
             Section {
@@ -111,7 +168,7 @@ struct VesselDetailView: View {
                             }
                         }
                         .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) { vm.deleteCheckById(check.id) } label: { Label("Delete", systemImage: "trash") }
+                            Button(role: .destructive) { checkToDelete = check } label: { Label("Delete", systemImage: "trash") }
                             Button { vm.unassignCheckFromVessel(checkId: check.id) } label: { Label("Unassign", systemImage: "minus.circle") }.tint(.review)
                         }
                 }
@@ -133,7 +190,7 @@ struct VesselDetailView: View {
                         Button { activeCheck = check } label: { crewRow(check) }
                             .contextMenu { personContextMenu(check) }
                             .swipeActions(edge: .trailing) {
-                                Button(role: .destructive) { vm.deleteCheckById(check.id) } label: { Label("Delete", systemImage: "trash") }
+                                Button(role: .destructive) { checkToDelete = check } label: { Label("Delete", systemImage: "trash") }
                                 Button { vm.unassignCheckFromVessel(checkId: check.id) } label: { Label("Unassign", systemImage: "minus.circle") }.tint(.review)
                             }
                     }
@@ -142,31 +199,39 @@ struct VesselDetailView: View {
 
             // Compliance (UBO verification, owners, management)
             Section {
-                // Ownership structure summary
                 if let os = v.ownershipStructure {
                     HStack(spacing: 12) {
-                        Image(systemName: os.isDirectOwnership ? "person" : "building.2").font(Typo.body).foregroundStyle(.secondary)
+                        let icon = os.resolvedEntityType == .trust ? "shield.checkered" : os.isDirectOwnership ? "person" : "building.2"
+                        Image(systemName: icon).font(Typo.body).foregroundStyle(.secondary)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(os.isDirectOwnership ? "Direct Ownership" : os.spv?.name ?? "Corporate SPV").font(Typo.body)
+                            HStack(spacing: 6) {
+                                Text(os.isDirectOwnership ? "Direct Ownership" : os.spv?.name ?? os.resolvedEntityType.rawValue).font(Typo.body)
+                                if os.resolvedEntityType != .company {
+                                    MetadataPill(icon: nil, text: os.resolvedEntityType.rawValue)
+                                }
+                            }
                             let uboCount = os.shareholders.filter(\.isUBO).count
-                            Text("\(uboCount) UBO\(uboCount == 1 ? "" : "s") \u{2022} \(os.directors.count) director\(os.directors.count == 1 ? "" : "s")").font(Typo.meta).foregroundStyle(.secondary)
+                            let trusteeCount = (os.trustees ?? []).count
+                            if os.resolvedEntityType == .trust {
+                                Text("\(trusteeCount) trustee\(trusteeCount == 1 ? "" : "s") \u{2022} \((os.beneficiaries ?? []).count) beneficiar\((os.beneficiaries ?? []).count == 1 ? "y" : "ies")").font(Typo.meta).foregroundStyle(.secondary)
+                            } else {
+                                Text("\(uboCount) UBO\(uboCount == 1 ? "" : "s") \u{2022} \(os.directors.count) director\(os.directors.count == 1 ? "" : "s")").font(Typo.meta).foregroundStyle(.secondary)
+                            }
                         }
                         Spacer()
                         if os.uboReportGenerated { Image(systemName: "checkmark.seal.fill").foregroundStyle(Color.clear_) }
                     }
                 }
 
-                // Compliance entity checks
                 ForEach(complianceEntities) { check in
                     Button { activeCheck = check } label: { crewRow(check) }
                         .contextMenu { personContextMenu(check) }
                         .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) { vm.deleteCheckById(check.id) } label: { Label("Delete", systemImage: "trash") }
+                            Button(role: .destructive) { checkToDelete = check } label: { Label("Delete", systemImage: "trash") }
                             Button { vm.unassignCheckFromVessel(checkId: check.id) } label: { Label("Unassign", systemImage: "minus.circle") }.tint(.review)
                         }
                 }
 
-                // Actions
                 Button { showOwnershipFlow = true } label: {
                     Label(v.ownershipStructure == nil ? "UBO Verification" : "Update UBO Verification", systemImage: "person.badge.key").font(Typo.body).foregroundStyle(.primary)
                 }
@@ -180,10 +245,9 @@ struct VesselDetailView: View {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Button { showEditVessel = true } label: { Label("Edit Vessel", systemImage: "pencil") }
-
                     Divider()
                     Button { showShareVesselData = true } label: { Label("Share Vessel Data", systemImage: "square.and.arrow.up") }
-
+                    Button { showOwnerShare = true } label: { Label("Share with Owner", systemImage: "person.badge.key") }
                     Divider()
                     Button(role: .destructive) { showDeleteConfirm = true } label: { Label("Delete Vessel", systemImage: "trash") }
                 } label: {
@@ -193,9 +257,7 @@ struct VesselDetailView: View {
         }
         .alert("Delete Vessel", isPresented: $showDeleteConfirm) {
             Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) {
-                vm.deleteVessel(id: vessel.id)
-            }
+            Button("Delete", role: .destructive) { vm.deleteVessel(id: vessel.id) }
         } message: {
             Text("This will delete \(v.name) and unlink all crew. Crew records will be preserved but unassigned.")
         }
@@ -217,6 +279,7 @@ struct VesselDetailView: View {
         .sheet(isPresented: $showEditVessel) { EditVesselSheet(vm: vm, vessel: v) }
         .sheet(isPresented: $showOwnershipFlow) { OwnershipFlowView(vm: vm, vesselId: vessel.id) }
         .sheet(isPresented: $showShareVesselData) { ShareVesselSheet(vm: vm, vessel: v) }
+        .sheet(isPresented: $showOwnerShare) { ShareWithOwnerSheet(vm: vm, vesselId: vessel.id) }
         .alert("Edit Name", isPresented: .constant(editingPerson != nil)) {
             TextField("Name", text: $editName)
             Button("Cancel", role: .cancel) { editingPerson = nil }
@@ -227,6 +290,13 @@ struct VesselDetailView: View {
                 editingPerson = nil
             }
         } message: { Text("Enter the correct name") }
+        .alert("Delete", isPresented: .constant(checkToDelete != nil)) {
+            Button("Cancel", role: .cancel) { checkToDelete = nil }
+            Button("Delete", role: .destructive) {
+                if let check = checkToDelete { vm.deleteCheckById(check.id) }
+                checkToDelete = nil
+            }
+        } message: { Text("Delete \(checkToDelete?.displayName ?? "this person")? This cannot be undone.") }
         .sheet(isPresented: $showAddCompliance) {
             AddComplianceSheet(vm: vm, vesselId: vessel.id) { check in
                 showAddCompliance = false
@@ -235,14 +305,150 @@ struct VesselDetailView: View {
         }
     }
 
+    // MARK: - Quick Actions
+
+    private func quickAction(_ icon: String, _ label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: icon).font(.system(size: 16))
+                    .frame(width: 44, height: 44)
+                    .background(Color.surfaceMuted)
+                    .clipShape(Circle())
+                Text(label).font(Typo.meta)
+            }
+            .foregroundStyle(.primary)
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Stats with Progress Bar
+
+    // MARK: - Certificate Summary (collapsed — full view pushed)
+
+    @ViewBuilder
+    private var certificateSections: some View {
+        let readiness = certReadinessCache
+        let portfolio = vm.vesselDocumentPortfolio(for: v)
+        let attention = portfolio.filter { $0.document?.status == .expired || $0.document?.status == .expiringSoon }
+
+        Section {
+            // GT warning
+            if v.grossTonnageValue == nil && v.grossTonnage.isEmpty {
+                Button { showEditVessel = true } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle").font(Typo.meta).foregroundStyle(Color.review)
+                        Text("Set gross tonnage for accurate requirements").font(Typo.meta).foregroundStyle(Color.review)
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.system(size: 10)).foregroundStyle(.quaternary)
+                    }
+                }
+            }
+
+            // Readiness summary
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("\(readiness.completed) of \(readiness.total) certificates").font(Typo.body)
+                    Spacer()
+                }
+                ProgressBar(value: readiness.completed, total: readiness.total)
+                if readiness.expiring > 0 || readiness.expired > 0 {
+                    HStack(spacing: 8) {
+                        if readiness.expired > 0 { MetadataPill(icon: "xmark.circle", text: "\(readiness.expired) Expired") }
+                        if readiness.expiring > 0 { MetadataPill(icon: "exclamationmark.triangle", text: "\(readiness.expiring) Expiring") }
+                    }
+                }
+            }
+
+            // Attention items inline (max 3)
+            ForEach(attention.prefix(3)) { item in
+                certRow(item)
+            }
+
+            // View all + Add
+            NavigationLink {
+                VesselCertificatePortfolioView(vm: vm, vesselId: vessel.id)
+            } label: {
+                HStack {
+                    Image(systemName: "folder").font(Typo.body).foregroundStyle(.secondary)
+                    Text("View all certificates").font(Typo.body).foregroundStyle(.secondary)
+                    Spacer()
+                    Text("\(portfolio.count)").font(Typo.meta).foregroundStyle(.tertiary)
+                    Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.quaternary)
+                }
+            }
+
+            Button { addVesselDoc = true } label: {
+                Label("Add certificate", systemImage: "plus.circle").font(Typo.body).foregroundStyle(.secondary)
+            }
+        } header: { Text("Certificates") }
+    }
+
+    @ViewBuilder
+    private func certRow(_ item: KYCViewModel.VesselPortfolioItem) -> some View {
+        if let doc = item.document {
+            Button { selectedVesselDoc = doc } label: {
+                HStack(spacing: 0) {
+                    RoundedRectangle(cornerRadius: 1.5).fill(doc.statusColor)
+                        .frame(width: 3, height: 32).padding(.trailing, 12)
+                    Image(systemName: item.type.icon).font(.system(size: 14)).foregroundStyle(doc.statusColor).frame(width: 22).padding(.trailing, 10)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.type.displayName).font(Typo.body).lineLimit(1).foregroundStyle(.primary)
+                        HStack(spacing: 8) {
+                            if let exp = doc.expiryDate { Text(exp.formatted(date: .abbreviated, time: .omitted)).font(Typo.meta).foregroundStyle(doc.statusColor) }
+                            if let num = doc.documentNumber, !num.isEmpty { Text(num).font(Typo.meta).foregroundStyle(.secondary) }
+                        }
+                    }
+                    Spacer()
+                    if !doc.imagePaths.isEmpty { Image(systemName: "doc.fill").font(Typo.meta).foregroundStyle(.tertiary) }
+                    Image(systemName: "chevron.right").font(.system(size: 10)).foregroundStyle(.quaternary)
+                }
+            }
+            .swipeActions(edge: .trailing) {
+                Button(role: .destructive) { vm.removeVesselDocument(vesselId: vessel.id, documentId: doc.id) } label: { Label("Remove", systemImage: "trash") }
+            }
+        } else {
+            Button { addVesselDoc = true } label: {
+                HStack(spacing: 0) {
+                    RoundedRectangle(cornerRadius: 1.5).fill(item.required ? Color.review : Color.secondary.opacity(0.2))
+                        .frame(width: 3, height: 32).padding(.trailing, 12)
+                    Image(systemName: item.type.icon).font(.system(size: 14)).foregroundStyle(.quaternary).frame(width: 22).padding(.trailing, 10)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.type.displayName).font(Typo.body).lineLimit(1).foregroundStyle(.secondary)
+                        Text(item.reason ?? (item.required ? "Required — missing" : "Optional"))
+                            .font(Typo.meta).foregroundStyle(item.required ? Color.review : Color.secondary.opacity(0.4))
+                    }
+                    Spacer()
+                    Image(systemName: "plus").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func statWithBar(_ label: String, _ value: Int, _ total: Int) -> some View {
+        VStack(spacing: 6) {
+            Text("\(value)/\(total)").font(Typo.stat).foregroundStyle(value == total && total > 0 ? Color.clear_ : .secondary)
+            Text(label).font(Typo.meta).foregroundStyle(.secondary)
+            ProgressBar(value: value, total: total)
+                .padding(.horizontal, 8)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Vessel Photo
+
+    private func loadVesselPhoto(_ item: PhotosPickerItem?) async {
+        guard let item else { return }
+        guard let data = try? await item.loadTransferable(type: Data.self) else { return }
+        await MainActor.run { vm.saveVesselPhoto(vesselId: vessel.id, imageData: data) }
+    }
+
     // MARK: - Context Menu
 
     @ViewBuilder
     private func personContextMenu(_ check: KYCCheck) -> some View {
-        // Edit name
         Button { editName = check.displayName; editingPerson = check } label: { Label("Edit Name", systemImage: "pencil") }
 
-        // Assign as Crew (with rank selection built-in)
         Menu {
             ForEach(CrewRank.allCases) { r in
                 Button("\(r.rawValue)") {
@@ -252,14 +458,12 @@ struct VesselDetailView: View {
             }
         } label: { Label("Assign as Crew", systemImage: "person.text.rectangle") }
 
-        // Assign as Shore-Based
         Menu {
             ForEach(KYCCheck.EntityType.shoreBasedTypes, id: \.self) { et in
                 Button(et.rawValue) { vm.updateEntityType(checkId: check.id, entityType: et) }
             }
         } label: { Label("Assign as Shore-Based", systemImage: "building") }
 
-        // Assign as Ownership/Compliance
         Menu {
             ForEach(KYCCheck.EntityType.ownershipTypes, id: \.self) { et in
                 Button(et.rawValue) { vm.updateEntityType(checkId: check.id, entityType: et) }
@@ -268,27 +472,21 @@ struct VesselDetailView: View {
 
         Divider()
 
-        // Transfer
         if vm.vessels.count > 1 { Button { transferCheck = check } label: { Label("Move to Vessel", systemImage: "arrow.right.arrow.left") } }
-
-        // Unassign
         Button { vm.unassignCheckFromVessel(checkId: check.id) } label: { Label("Remove from Vessel", systemImage: "minus.circle") }
 
         Divider()
-
-        // Delete
-        Button(role: .destructive) { vm.deleteCheckById(check.id) } label: { Label("Delete", systemImage: "trash") }
+        Button(role: .destructive) { checkToDelete = check } label: { Label("Delete", systemImage: "trash") }
     }
 
     // MARK: - Components
 
     private func crewRow(_ check: KYCCheck) -> some View {
         HStack(spacing: 14) {
-            avatar(check, size: 42)
-            VStack(alignment: .leading, spacing: 3) {
+            avatar(check, size: 48)
+            VStack(alignment: .leading, spacing: 4) {
                 Text(check.displayName).font(.system(size: 14, weight: .semibold)).lineLimit(1)
                 HStack(spacing: 8) {
-                    // Role/rank display
                     switch check.entityType.category {
                     case .crew:
                         if let rank = check.crewRank {
@@ -307,24 +505,18 @@ struct VesselDetailView: View {
                             }
                         }
                     }
-                    let docs = check.documents ?? []
-                    if !docs.isEmpty {
-                        let valid = docs.filter { $0.status == .valid }.count
-                        Text("\(valid)/\(docs.count) docs").font(Typo.meta).foregroundStyle(valid == docs.count ? Color.clear_ : Color.secondary)
-                    }
+                }
+                // Document progress bar
+                let docs = check.documents ?? []
+                if !docs.isEmpty {
+                    let valid = docs.filter { $0.status == .valid }.count
+                    ProgressBar(value: valid, total: docs.count)
                 }
             }
             Spacer()
             StatusBadge(status: check.status)
         }
         .padding(.vertical, 2)
-    }
-
-    private func statPill(_ value: String, _ label: String, _ color: Color) -> some View {
-        VStack(spacing: 2) {
-            Text(value).font(Typo.stat).foregroundStyle(color)
-            Text(label).font(Typo.meta).foregroundStyle(.secondary)
-        }.frame(maxWidth: .infinity)
     }
 
     private func avatar(_ check: KYCCheck, size: CGFloat) -> some View {
@@ -344,6 +536,92 @@ struct VesselDetailView: View {
 
 // MARK: - Add Crew Sheet (the primary flow for adding crew to a vessel)
 
+// MARK: - Vessel Certificate Portfolio (full grouped view — pushed from summary)
+
+struct VesselCertificatePortfolioView: View {
+    @ObservedObject var vm: KYCViewModel
+    let vesselId: String
+    @State private var selectedDoc: CrewDocument?
+    @State private var showAddDoc = false
+
+    private var vessel: Vessel { vm.vessels.first(where: { $0.id == vesselId }) ?? Vessel(name: "") }
+
+    var body: some View {
+        let portfolio = vm.vesselDocumentPortfolio(for: vessel)
+        let grouped = Dictionary(grouping: portfolio, by: { $0.type.category })
+        let categories = VesselDocCategory.allCases.filter { grouped[$0] != nil }
+        let readiness = vm.vesselDocReadiness(for: vessel)
+
+        List {
+            // Readiness header
+            Section {
+                ReadinessCard(completed: readiness.completed, total: readiness.total, expiringCount: readiness.expiring, expiredCount: readiness.expired, label: "certificates")
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+            }
+
+            ForEach(categories) { category in
+                Section {
+                    ForEach(grouped[category] ?? []) { item in
+                        certPortfolioRow(item)
+                    }
+                } header: { Text(category.rawValue) }
+            }
+
+            Section {
+                Button { showAddDoc = true } label: {
+                    Label("Add certificate", systemImage: "plus.circle").font(Typo.body).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .background(Color.surface.ignoresSafeArea())
+        .navigationTitle("Vessel Certificates")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $selectedDoc) { doc in VesselDocDetailSheet(vm: vm, vesselId: vesselId, document: doc) }
+        .sheet(isPresented: $showAddDoc) { VesselDocAddSheet(vm: vm, vesselId: vesselId) }
+    }
+
+    private func certPortfolioRow(_ item: KYCViewModel.VesselPortfolioItem) -> some View {
+        Group {
+            if let doc = item.document {
+                Button { selectedDoc = doc } label: {
+                    HStack(spacing: 0) {
+                        RoundedRectangle(cornerRadius: 1.5).fill(doc.statusColor)
+                            .frame(width: 3, height: 32).padding(.trailing, 12)
+                        Image(systemName: item.type.icon).font(.system(size: 14)).foregroundStyle(doc.statusColor).frame(width: 22).padding(.trailing, 10)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.type.displayName).font(Typo.body).lineLimit(1).foregroundStyle(.primary)
+                            HStack(spacing: 8) {
+                                if let exp = doc.expiryDate { Text(exp.formatted(date: .abbreviated, time: .omitted)).font(Typo.meta).foregroundStyle(doc.statusColor) }
+                                if let num = doc.documentNumber, !num.isEmpty { Text(num).font(Typo.meta).foregroundStyle(.secondary) }
+                            }
+                        }
+                        Spacer()
+                        if !doc.imagePaths.isEmpty { Image(systemName: "doc.fill").font(Typo.meta).foregroundStyle(.tertiary) }
+                        Image(systemName: "chevron.right").font(.system(size: 10)).foregroundStyle(.quaternary)
+                    }
+                }
+            } else {
+                Button { showAddDoc = true } label: {
+                    HStack(spacing: 0) {
+                        RoundedRectangle(cornerRadius: 1.5).fill(item.required ? Color.review : Color.secondary.opacity(0.2))
+                            .frame(width: 3, height: 32).padding(.trailing, 12)
+                        Image(systemName: item.type.icon).font(.system(size: 14)).foregroundStyle(.quaternary).frame(width: 22).padding(.trailing, 10)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.type.displayName).font(Typo.body).lineLimit(1).foregroundStyle(.secondary)
+                            Text(item.reason ?? (item.required ? "Required — missing" : "Optional"))
+                                .font(Typo.meta).foregroundStyle(item.required ? Color.review : Color.secondary.opacity(0.4))
+                        }
+                        Spacer()
+                        Image(systemName: "plus").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Vessel Document Detail
 
 struct VesselDocDetailSheet: View {
@@ -352,6 +630,14 @@ struct VesselDocDetailSheet: View {
     let document: CrewDocument
     @Environment(\.dismiss) private var dismiss
     @State private var showDeleteConfirm = false
+    @State private var showRenew = false
+    @State private var showHistory = false
+
+    private var allVersions: [CrewDocument] {
+        let vessel = vm.vessels.first(where: { $0.id == vesselId })
+        return (vessel?.documents ?? []).filter { $0.vesselDocType == document.vesselDocType }
+    }
+    private var hasHistory: Bool { allVersions.count > 1 }
 
     var body: some View {
         NavigationStack {
@@ -414,6 +700,53 @@ struct VesselDocDetailSheet: View {
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                     .padding(.horizontal, 20)
 
+                    // Renewal guidance card
+                    if let vdt = document.vesselDocType, let guidance = vdt.renewalInfo,
+                       document.status == .expiringSoon || document.status == .expired {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label("Renewal Steps", systemImage: "arrow.clockwise")
+                                .font(Typo.body).fontWeight(.medium)
+                            Text(guidance.activity).font(Typo.body)
+                            HStack(spacing: 16) {
+                                Label(guidance.leadTime, systemImage: "clock").font(Typo.meta)
+                                Label(guidance.contactType, systemImage: "person").font(Typo.meta)
+                            }.foregroundStyle(.secondary)
+                            if let notes = guidance.notes {
+                                Text(notes).font(Typo.meta).foregroundStyle(.tertiary)
+                            }
+                        }
+                        .padding(14)
+                        .background(Color.review.opacity(0.04))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .padding(.horizontal, 20)
+                    }
+
+                    // Renew button
+                    if document.expiryDate != nil {
+                        Button { showRenew = true } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "arrow.clockwise")
+                                Text("Renew Certificate")
+                            }
+                        }
+                        .buttonStyle(SecondaryButtonStyle())
+                        .padding(.horizontal, 20)
+                    }
+
+                    // Version history
+                    if hasHistory {
+                        Button { showHistory = true } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "clock.arrow.circlepath")
+                                Text("Version History")
+                                Spacer()
+                                Text("\(allVersions.count)").font(Typo.meta).foregroundStyle(.tertiary)
+                                Image(systemName: "chevron.right").font(.system(size: 10)).foregroundStyle(.quaternary)
+                            }.font(Typo.body).foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 20)
+                    }
+
                     // Delete
                     Button(role: .destructive) { showDeleteConfirm = true } label: {
                         Text("Remove Certificate").font(Typo.meta)
@@ -427,6 +760,12 @@ struct VesselDocDetailSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+            .sheet(isPresented: $showRenew) {
+                VesselDocAddSheet(vm: vm, vesselId: vesselId, renewingDocId: document.id)
+            }
+            .sheet(isPresented: $showHistory) {
+                DocumentHistorySheet(allVersions: allVersions)
             }
             .alert("Remove Certificate", isPresented: $showDeleteConfirm) {
                 Button("Cancel", role: .cancel) {}
@@ -445,6 +784,64 @@ struct VesselDocDetailSheet: View {
             Spacer()
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
+    }
+}
+
+// MARK: - Document Version History
+
+struct DocumentHistorySheet: View {
+    let allVersions: [CrewDocument]
+    @Environment(\.dismiss) private var dismiss
+
+    // Sort: current (non-archived) first, then by renewedAt descending
+    private var sorted: [CrewDocument] {
+        allVersions.sorted { a, b in
+            if a.isArchived != b.isArchived { return !a.isArchived }
+            return (a.renewedAt ?? Date.distantFuture) > (b.renewedAt ?? Date.distantFuture)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(sorted) { doc in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(doc.displayName).font(Typo.body).fontWeight(doc.isArchived ? .regular : .semibold)
+                            Spacer()
+                            if doc.isArchived {
+                                Text("Archived").font(Typo.meta).foregroundStyle(.tertiary)
+                            } else {
+                                Text("Current").font(Typo.meta).fontWeight(.medium).foregroundStyle(Color.clear_)
+                            }
+                        }
+                        HStack(spacing: 12) {
+                            if let num = doc.documentNumber, !num.isEmpty {
+                                Label(num, systemImage: "number").font(Typo.meta).foregroundStyle(.secondary)
+                            }
+                            if let exp = doc.expiryDate {
+                                Label(exp.formatted(date: .abbreviated, time: .omitted), systemImage: "calendar")
+                                    .font(Typo.meta).foregroundStyle(doc.status == .expired ? Color.flagged : .secondary)
+                            }
+                        }
+                        if let renewed = doc.renewedAt {
+                            Text("Renewed \(renewed.formatted(date: .abbreviated, time: .omitted))")
+                                .font(Typo.meta).foregroundStyle(.tertiary)
+                        }
+                        if let iss = doc.issuingAuthority, !iss.isEmpty {
+                            Text(iss).font(Typo.meta).foregroundStyle(.tertiary)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle("Version History")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+        }
     }
 }
 
@@ -508,7 +905,9 @@ struct EditVesselSheet: View {
     @State private var yearBuilt: String
     @State private var owner: String
     @State private var certExpiry: String
+    @State private var regLength: String
     @State private var showFlagPicker = false
+    @State private var selectedPhoto: PhotosPickerItem?
 
     init(vm: KYCViewModel, vessel: Vessel) {
         self.vm = vm; self.vessel = vessel
@@ -523,6 +922,7 @@ struct EditVesselSheet: View {
         _yearBuilt = State(initialValue: vessel.yearBuilt)
         _owner = State(initialValue: vessel.registeredOwner)
         _certExpiry = State(initialValue: vessel.certificateExpiry)
+        _regLength = State(initialValue: vessel.registeredLength)
     }
 
     private var selectedFlag: (emoji: String, name: String, code: String, port: String)? {
@@ -532,6 +932,44 @@ struct EditVesselSheet: View {
     var body: some View {
         NavigationStack {
             List {
+                // Vessel photo
+                Section("Photo") {
+                    let photoData = vessel.photoFilename.flatMap { vm.loadDocumentImage(filename: $0) }
+                    PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                        HStack(spacing: 14) {
+                            if let data = photoData, let img = UIImage(data: data) {
+                                Image(uiImage: img).resizable().scaledToFill()
+                                    .frame(width: 64, height: 64)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                            } else {
+                                RoundedRectangle(cornerRadius: 10).fill(Color.surfaceMuted)
+                                    .frame(width: 64, height: 64)
+                                    .overlay { Image(systemName: "camera").foregroundStyle(.tertiary) }
+                            }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(photoData != nil ? "Change Photo" : "Add Photo").font(Typo.body)
+                                Text("Tap to select from library").font(Typo.meta).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.quaternary)
+                        }
+                    }
+                    .onChange(of: selectedPhoto) { _, item in
+                        guard let item else { return }
+                        Task {
+                            if let data = try? await item.loadTransferable(type: Data.self) {
+                                await MainActor.run { vm.saveVesselPhoto(vesselId: vessel.id, imageData: data) }
+                            }
+                        }
+                    }
+
+                    if vessel.photoFilename != nil {
+                        Button(role: .destructive) { vm.deleteVesselPhoto(vesselId: vessel.id) } label: {
+                            Text("Remove Photo").font(Typo.meta)
+                        }
+                    }
+                }
+
                 Section("Identity") {
                     row("Vessel Name", text: $name)
                     row("IMO Number", text: $imo)
@@ -555,6 +993,7 @@ struct EditVesselSheet: View {
                 }
                 Section("Details") {
                     row("Gross Tonnage", text: $grossTonnage)
+                    row("Registered Length", text: $regLength)
                     row("Builder", text: $builder)
                     row("Year Built", text: $yearBuilt)
                     row("Registered Owner", text: $owner)
@@ -592,6 +1031,7 @@ struct EditVesselSheet: View {
         updated.imoNumber = imo; updated.callSign = callSign
         updated.flagState = flag.uppercased(); updated.portOfRegistry = port
         updated.vesselType = vesselType; updated.grossTonnage = grossTonnage
+        updated.registeredLength = regLength
         updated.builder = builder; updated.yearBuilt = yearBuilt
         updated.registeredOwner = owner; updated.certificateExpiry = certExpiry
         vm.updateVessel(updated)
@@ -614,7 +1054,7 @@ struct AddComplianceSheet: View {
     @State private var step = 0
     @FocusState private var focused: Bool
 
-    private let entityTypes: [KYCCheck.EntityType] = [.owner, .ubo, .managementCompany, .directorOfficer]
+    private let entityTypes: [KYCCheck.EntityType] = KYCCheck.EntityType.ownershipTypes
 
     var body: some View {
         NavigationStack {
@@ -873,6 +1313,7 @@ struct TransferSheet: View {
 struct VesselDocAddSheet: View {
     @ObservedObject var vm: KYCViewModel
     let vesselId: String
+    var renewingDocId: String? = nil
     @Environment(\.dismiss) private var dismiss
 
     // Flow: capture → analyze → review → save
@@ -1201,7 +1642,11 @@ struct VesselDocAddSheet: View {
             documentNumber: docNumber.isEmpty ? nil : docNumber,
             expiryDate: hasExpiry ? expiryDate : nil,
             issuingAuthority: issuingAuthority.isEmpty ? nil : issuingAuthority)
-        vm.addVesselDocument(to: vesselId, document: doc)
+        if let oldId = renewingDocId {
+            vm.renewVesselDocument(vesselId: vesselId, oldDocId: oldId, newDoc: doc)
+        } else {
+            vm.addVesselDocument(to: vesselId, document: doc)
+        }
         dismiss()
     }
 

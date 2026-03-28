@@ -36,6 +36,10 @@ class CloudBackupService: ObservableObject {
         // JSON files
         copyReplace(from: checksFile, to: cloud.appendingPathComponent("kyc_checks.json"))
         copyReplace(from: vesselsFile, to: cloud.appendingPathComponent("vessels.json"))
+        let transferLog = checksFile.deletingLastPathComponent().appendingPathComponent("transfer_log.json")
+        if FileManager.default.fileExists(atPath: transferLog.path) {
+            copyReplace(from: transferLog, to: cloud.appendingPathComponent("transfer_log.json"))
+        }
 
         // Images
         let cloudImages = cloud.appendingPathComponent("captured_documents")
@@ -46,8 +50,11 @@ class CloudBackupService: ObservableObject {
             }
         }
 
-        // Settings
+        // Settings — sync full agent profile
         let kvs = NSUbiquitousKeyValueStore.default
+        if let profileData = UserDefaults.standard.data(forKey: "agentProfile") {
+            kvs.set(profileData, forKey: "agentProfile")
+        }
         kvs.set(UserDefaults.standard.string(forKey: "agentName") ?? "", forKey: "agentName")
         kvs.synchronize()
 
@@ -74,8 +81,14 @@ class CloudBackupService: ObservableObject {
             }
         }
 
-        // Settings
-        if let name = NSUbiquitousKeyValueStore.default.string(forKey: "agentName"), !name.isEmpty {
+        // Settings — restore full agent profile
+        if let profileData = NSUbiquitousKeyValueStore.default.data(forKey: "agentProfile") {
+            UserDefaults.standard.set(profileData, forKey: "agentProfile")
+            // Also restore agentName for backward compat
+            if let profile = try? JSONDecoder().decode(AgentProfile.self, from: profileData) {
+                UserDefaults.standard.set(profile.fullName, forKey: "agentName")
+            }
+        } else if let name = NSUbiquitousKeyValueStore.default.string(forKey: "agentName"), !name.isEmpty {
             UserDefaults.standard.set(name, forKey: "agentName")
         }
 

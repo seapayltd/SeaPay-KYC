@@ -141,6 +141,23 @@ struct ShareVesselSheet: View {
             } footer: {
                 Text("Generates a formal PDF packet for the recipient")
             }
+
+            // Transfer history
+            if !vm.transferLog.isEmpty {
+                Section {
+                    NavigationLink {
+                        TransferHistoryView(vm: vm)
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "clock.arrow.circlepath").font(.system(size: 14)).foregroundStyle(.secondary).frame(width: 28)
+                            Text("Transfer History").font(Typo.body).foregroundStyle(.secondary)
+                            Spacer()
+                            Text("\(vm.transferLog.count)").font(Typo.meta).foregroundStyle(.tertiary)
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+            }
         }
         .listStyle(.insetGrouped)
     }
@@ -248,13 +265,17 @@ struct ShareVesselSheet: View {
     // MARK: - Generate
 
     private func generate(_ scenario: VesselShareScenario) async {
-        try? await Task.sleep(nanoseconds: 200_000_000)
-        await MainActor.run {
-            if scenario.isTransfer {
-                resultURL = vm.generateTransferPackage(vesselId: vessel.id, scenario: scenario)
+        let vid = vessel.id
+        let isTransfer = scenario.isTransfer
+        let url: URL? = await Task.detached { [vm] in
+            if isTransfer {
+                return await vm.generateTransferPackage(vesselId: vid, scenario: scenario)
             } else {
-                resultURL = vm.generateShareExport(vesselId: vessel.id, scenario: scenario)
+                return await vm.generateShareExport(vesselId: vid, scenario: scenario)
             }
+        }.value
+        await MainActor.run {
+            resultURL = url
             withAnimation { phase = .preview }
         }
     }

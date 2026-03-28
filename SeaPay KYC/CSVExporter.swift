@@ -101,8 +101,8 @@ enum CSVExporter {
         // Crew rows
         for (i, check) in seafarers.enumerated() {
             let nameParts = (check.extractedName ?? check.customerName).split(separator: " ", maxSplits: 1)
-            let familyName = nameParts.count > 1 ? String(nameParts.last!) : String(nameParts.first ?? "")
-            let givenNames = nameParts.count > 1 ? String(nameParts.first!) : ""
+            let familyName = nameParts.count > 1 ? String(nameParts.last ?? "") : String(nameParts.first ?? "")
+            let givenNames = nameParts.count > 1 ? String(nameParts.first ?? "") : ""
 
             // Find passport document for travel doc details
             let passport = (check.documents ?? []).first(where: { $0.type == .passport && !$0.isArchived })
@@ -131,6 +131,46 @@ enum CSVExporter {
         lines.append("Date:,\(dateFmt.string(from: Date()))")
 
         return lines.joined(separator: "\n")
+    }
+
+    // MARK: - Vessel Certificate CSV
+
+    static func generateVesselCertCSV(vessel: Vessel) -> String {
+        let dateFmt = DateFormatter(); dateFmt.dateFormat = "yyyy-MM-dd"
+        let docs = (vessel.documents ?? []).filter { !$0.isArchived }
+
+        var lines: [String] = []
+        lines.append("Vessel Certificate Status — \(escape(vessel.name))")
+        lines.append("IMO: \(escape(vessel.imoNumber)),Flag: \(escape(vessel.flagState)),GT: \(escape(vessel.grossTonnage)),LOA: \(escape(vessel.lengthOverall)),RL: \(escape(vessel.registeredLength))")
+        lines.append("")
+        lines.append(["Certificate", "Category", "Status", "Document Number", "Expiry Date", "Issuing Authority"].map { escape($0) }.joined(separator: ","))
+
+        for doc in docs {
+            let row: [String] = [
+                escape(doc.displayName),
+                escape(doc.vesselDocType?.category.rawValue ?? "Other"),
+                escape(doc.statusLabel),
+                escape(doc.documentNumber ?? ""),
+                escape(doc.expiryDate.map { dateFmt.string(from: $0) } ?? ""),
+                escape(doc.issuingAuthority ?? "")
+            ]
+            lines.append(row.joined(separator: ","))
+        }
+
+        lines.append("")
+        lines.append("Total certificates: \(docs.count)")
+        lines.append("Valid: \(docs.filter { $0.status == .valid }.count)")
+        lines.append("Expiring: \(docs.filter { $0.status == .expiringSoon }.count)")
+        lines.append("Expired: \(docs.filter { $0.status == .expired }.count)")
+        lines.append("Generated: \(dateFmt.string(from: Date()))")
+
+        return lines.joined(separator: "\n")
+    }
+
+    // MARK: - Import Template
+
+    static func generateImportTemplate() -> String {
+        CSVImporter.generateTemplate()
     }
 
     private static func escape(_ value: String) -> String {

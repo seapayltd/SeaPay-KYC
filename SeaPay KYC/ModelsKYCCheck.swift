@@ -60,6 +60,10 @@ struct KYCCheck: Identifiable, Codable, Hashable {
         case ubo = "Beneficial Owner (UBO)"
         case managementCompany = "Management Company"
         case directorOfficer = "Director / Officer"
+        case trustee = "Trustee"
+        case settlor = "Settlor"
+        case protector = "Protector"
+        case beneficiary = "Beneficiary"
 
         var id: String { rawValue }
 
@@ -74,6 +78,10 @@ struct KYCCheck: Identifiable, Codable, Hashable {
             case .ubo: return "person.badge.key"
             case .managementCompany: return "building"
             case .directorOfficer: return "person.badge.shield.checkmark"
+            case .trustee: return "shield.checkered"
+            case .settlor: return "person.badge.key"
+            case .protector: return "eye"
+            case .beneficiary: return "gift"
             }
         }
 
@@ -81,7 +89,7 @@ struct KYCCheck: Identifiable, Codable, Hashable {
             switch self {
             case .seafarer: return .crew
             case .dpa, .fleetManager, .technicalSuper, .crewingManager: return .shoreBased
-            case .owner, .ubo, .managementCompany, .directorOfficer: return .ownership
+            case .owner, .ubo, .managementCompany, .directorOfficer, .trustee, .settlor, .protector, .beneficiary: return .ownership
             }
         }
 
@@ -92,7 +100,7 @@ struct KYCCheck: Identifiable, Codable, Hashable {
         /// Grouped for UI pickers
         static var crewTypes: [EntityType] { [.seafarer] }
         static var shoreBasedTypes: [EntityType] { [.dpa, .fleetManager, .technicalSuper, .crewingManager] }
-        static var ownershipTypes: [EntityType] { [.owner, .ubo, .managementCompany, .directorOfficer] }
+        static var ownershipTypes: [EntityType] { [.owner, .ubo, .managementCompany, .directorOfficer, .trustee, .settlor, .protector, .beneficiary] }
     }
 
     enum PersonCategory: String, Codable {
@@ -112,6 +120,12 @@ struct KYCCheck: Identifiable, Codable, Hashable {
     var dateOfBirth: String?
     var expiryDate: String?
     var nationality: String?
+    var issuingCountry: String?
+    var gender: String?
+    var documentIssueDate: String?
+    var placeOfBirth: String?
+    var personalNumber: String?
+    var extractedAddress: String?
     var idWarnings: [String]?
 
     // AML results
@@ -164,10 +178,11 @@ struct KYCCheck: Identifiable, Codable, Hashable {
         }
     }
 
-    enum ReviewDecision: String, Codable {
+    enum ReviewDecision: String, Codable, Identifiable {
         case approved = "Approved"
         case flagged = "Flagged"
         case declined = "Declined"
+        var id: String { rawValue }
     }
 
     enum CheckType: String, Codable, CaseIterable {

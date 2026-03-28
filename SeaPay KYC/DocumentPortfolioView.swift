@@ -16,7 +16,7 @@ struct DocumentPortfolioView: View {
     @State private var addingDocType: MaritimeDocType?
     @State private var editingDoc: CrewDocument?
 
-    private var check: KYCCheck { vm.checks.first(where: { $0.id == checkId })! }
+    private var check: KYCCheck { vm.checks.first(where: { $0.id == checkId }) ?? KYCCheck(id: checkId, customerId: "", customerName: "Unknown", agentId: "", agentName: "", checkType: .idVerification, status: .pending, entityType: .seafarer, createdAt: Date()) }
     private var portfolio: [KYCViewModel.PortfolioItem] { vm.documentPortfolio(for: check) }
 
     private var validCount: Int { portfolio.filter { $0.document?.status == .valid }.count }
@@ -24,17 +24,45 @@ struct DocumentPortfolioView: View {
     private var expiringCount: Int { portfolio.filter { $0.document?.status == .expiringSoon }.count }
     private var expiredCount: Int { portfolio.filter { $0.document?.status == .expired }.count }
 
+    private var needsAttention: [KYCViewModel.PortfolioItem] {
+        portfolio.filter { item in
+            if let doc = item.document {
+                return doc.status == .expired || doc.status == .expiringSoon
+            }
+            return item.required && item.document == nil
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                // Stats
-                HStack(spacing: 20) {
-                    statCell("\(validCount)/\(requiredCount)", "Complete", validCount == requiredCount ? .clear_ : .secondary)
-                    if expiringCount > 0 { statCell("\(expiringCount)", "Expiring", .review) }
-                    if expiredCount > 0 { statCell("\(expiredCount)", "Expired", .flagged) }
-                    Spacer()
+                // Readiness dashboard
+                ReadinessCard(
+                    completed: validCount,
+                    total: requiredCount,
+                    expiringCount: expiringCount,
+                    expiredCount: expiredCount
+                )
+                .padding(.horizontal, 16).padding(.top, 12)
+
+                // Needs Attention section
+                if !needsAttention.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("NEEDS ATTENTION")
+                            .font(Typo.meta).foregroundStyle(Color.review).tracking(0.8)
+                            .padding(.horizontal, 20)
+
+                        ForEach(needsAttention) { item in
+                            DocRow(item: item, urgent: true) {
+                                if let doc = item.document, !doc.imagePaths.isEmpty {
+                                    editingDoc = doc
+                                } else {
+                                    addingDocType = item.type
+                                }
+                            }
+                        }
+                    }
                 }
-                .padding(.horizontal, 20).padding(.top, 12)
 
                 // Rank picker
                 if check.entityType == .seafarer && check.crewRank == nil {
@@ -69,7 +97,7 @@ struct DocumentPortfolioView: View {
                             }
                         } label: {
                             HStack(spacing: 4) {
-                                Text(check.crewRank!.rawValue).font(Typo.body)
+                                Text(check.crewRank?.rawValue ?? "").font(Typo.body)
                                 Image(systemName: "chevron.up.chevron.down").font(.system(size: 9)).foregroundStyle(.secondary)
                             }
                         }
@@ -88,7 +116,7 @@ struct DocumentPortfolioView: View {
                             .padding(.horizontal, 20).padding(.top, 14)
 
                         ForEach(grouped[category]!) { item in
-                            DocRow(item: item) {
+                            DocRow(item: item, urgent: item.required && item.document == nil) {
                                 if let doc = item.document, !doc.imagePaths.isEmpty {
                                     editingDoc = doc
                                 } else {
@@ -141,6 +169,7 @@ struct DocumentPortfolioView: View {
 
 private struct DocRow: View {
     let item: KYCViewModel.PortfolioItem
+    var urgent: Bool = false
     let onTap: () -> Void
 
     private var hasDoc: Bool { item.document != nil && !(item.document?.imagePaths.isEmpty ?? true) }
@@ -148,35 +177,49 @@ private struct DocRow: View {
 
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: 14) {
-                // Icon with status ring
-                ZStack {
-                    Circle().fill(color.opacity(0.1)).frame(width: 36, height: 36)
-                    Image(systemName: item.type.icon)
-                        .font(.system(size: 14))
-                        .foregroundStyle(hasDoc ? color : .secondary.opacity(0.4))
+            HStack(spacing: 0) {
+                // Urgent left border
+                if urgent {
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(item.document?.status == .expired ? Color.flagged : item.document?.status == .expiringSoon ? Color.review : Color.review)
+                        .frame(width: 3, height: 36)
+                        .padding(.trailing, 10).padding(.leading, 16)
                 }
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(item.type.displayName).font(Typo.body).lineLimit(1).foregroundStyle(.primary)
-                    if let doc = item.document, let exp = doc.expiryDate {
-                        Text(exp.formatted(date: .abbreviated, time: .omitted))
-                            .font(Typo.meta).foregroundStyle(doc.statusColor)
+                HStack(spacing: 14) {
+                    // Icon with status ring
+                    ZStack {
+                        Circle().fill(color.opacity(0.1)).frame(width: 36, height: 36)
+                        Image(systemName: item.type.icon)
+                            .font(.system(size: 14))
+                            .foregroundStyle(hasDoc ? color : .secondary.opacity(0.4))
+                    }
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(item.type.displayName).font(Typo.body).lineLimit(1).foregroundStyle(.primary)
+                        if let doc = item.document, let exp = doc.expiryDate {
+                            Text(exp.formatted(date: .abbreviated, time: .omitted))
+                                .font(Typo.meta).foregroundStyle(doc.statusColor)
+                        } else {
+                            Text(hasDoc ? "Added" : item.required ? "Required" : "Optional")
+                                .font(Typo.meta).foregroundStyle(hasDoc ? .secondary : .quaternary)
+                        }
+                        // KYB freshness warning
+                        if let doc = item.document, let warning = doc.freshnessWarning {
+                            Text(warning).font(.system(size: 10)).foregroundStyle(Color.review)
+                        }
+                    }
+
+                    Spacer()
+
+                    if hasDoc {
+                        Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(color)
                     } else {
-                        Text(hasDoc ? "Added" : item.required ? "Required" : "Optional")
-                            .font(Typo.meta).foregroundStyle(hasDoc ? .secondary : .quaternary)
+                        Image(systemName: "plus").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
                     }
                 }
-
-                Spacer()
-
-                if hasDoc {
-                    Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(color)
-                } else {
-                    Image(systemName: "plus").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
-                }
+                .padding(.horizontal, urgent ? 6 : 20).padding(.vertical, 12)
             }
-            .padding(.horizontal, 20).padding(.vertical, 12)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -199,6 +242,8 @@ struct QuickAddSheet: View {
     @State private var expiryDate = Calendar.current.date(byAdding: .year, value: 1, to: Date())!
     @State private var hasExpiry = true
     @State private var issuingAuthority = ""
+    @State private var issueDate = Date()
+    @State private var hasIssueDate = false
 
     var body: some View {
         NavigationStack {
@@ -246,6 +291,15 @@ struct QuickAddSheet: View {
                     VStack(spacing: 14) {
                         field("Document Number", text: $docNumber, prompt: "Optional")
                         field("Issuing Authority", text: $issuingAuthority, prompt: "e.g. MCA, MARINA")
+
+                        Toggle(isOn: $hasIssueDate) {
+                            Text("Record issue date").font(Typo.meta)
+                        }.tint(.primary).padding(.horizontal, 4)
+
+                        if hasIssueDate {
+                            DatePicker("Issued", selection: $issueDate, in: ...Date(), displayedComponents: .date)
+                                .font(Typo.meta).padding(.horizontal, 4)
+                        }
 
                         Toggle(isOn: $hasExpiry) {
                             Text("Has expiry date").font(Typo.meta)
@@ -305,6 +359,7 @@ struct QuickAddSheet: View {
             type: docType,
             imagePaths: paths,
             documentNumber: docNumber.isEmpty ? nil : docNumber,
+            issueDate: hasIssueDate ? issueDate : nil,
             expiryDate: hasExpiry ? expiryDate : nil,
             issuingAuthority: issuingAuthority.isEmpty ? nil : issuingAuthority
         )
@@ -356,8 +411,29 @@ struct DocumentDetailSheet: View {
 
                     Spacer(minLength: 16)
 
-                    // Renew
+                    // Renewal guidance + renew button
                     if document.expiryDate != nil {
+                        // Guidance card (shown when expiring or expired)
+                        if let guidance = document.type.renewalInfo,
+                           document.status == .expiringSoon || document.status == .expired {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Label("Renewal Steps", systemImage: "arrow.clockwise")
+                                    .font(Typo.body).fontWeight(.medium)
+                                Text(guidance.activity).font(Typo.body)
+                                HStack(spacing: 16) {
+                                    Label(guidance.leadTime, systemImage: "clock").font(Typo.meta)
+                                    Label(guidance.contactType, systemImage: "person").font(Typo.meta)
+                                }.foregroundStyle(.secondary)
+                                if let notes = guidance.notes {
+                                    Text(notes).font(Typo.meta).foregroundStyle(.tertiary)
+                                }
+                            }
+                            .padding(14)
+                            .background(Color.review.opacity(0.04))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .padding(.horizontal, 32)
+                        }
+
                         Button {
                             showRenew = true
                         } label: {

@@ -22,15 +22,13 @@ struct InviteSheet: View {
     @State private var sent = false
 
     private var agent: String {
-        let full = UserDefaults.standard.string(forKey: "agentName") ?? "Agent"
-        let p = full.split(separator: " "); guard let f = p.first else { return full }
-        return p.count > 1 ? "\(f) \(p.last!.first!.uppercased())." : String(f)
+        AgentProfile.current?.signatureLine ?? "Agent"
     }
 
     private var message: String {
         var msg = "Please verify your identity for maritime compliance.\n\n"
         msg += "Open this link to start:\n\(hostedURL)\n\n"
-        msg += "Takes 2 minutes.\n\u{2014} \(agent), SeaPay\u{00AE}"
+        msg += "Takes 2 minutes.\n\u{2014} \(agent)"
         return msg
     }
 
