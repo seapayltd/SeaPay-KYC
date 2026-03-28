@@ -757,7 +757,10 @@ enum ReportGenerator {
     static func generateUBOReport(vessel: Vessel, structure: OwnershipStructure, checks: [KYCCheck]) -> Data {
         let ref = "UBO-\(String(vessel.id.prefix(8)).uppercased())"
         var pn = 0
-        let allVerified = structure.shareholders.filter(\.isUBO).allSatisfy { sh in
+        let allPersons = structure.shareholders.filter(\.isUBO)
+            + (structure.trustees ?? []) + (structure.settlors ?? [])
+            + (structure.protectors ?? []) + (structure.beneficiaries ?? [])
+        let allVerified = allPersons.allSatisfy { sh in
             guard let cid = sh.checkId, let c = checks.first(where: { $0.id == cid }) else { return false }
             return c.status == .passed
         }
@@ -849,7 +852,45 @@ enum ReportGenerator {
                 txtR(statusText, y, .systemFont(ofSize: 8, weight: .bold), sColor)
                 y += 16
             }
-            y += 16
+            y += 12
+
+            // Trust Roles (trustees, settlors, protectors, beneficiaries)
+            func renderTrustSection(title: String, persons: [Shareholder]?) {
+                guard let persons, !persons.isEmpty else { return }
+                y = fitC(y, 30, ctx, &pn, ref, edgeColor)
+                y = secT(title, at: y, ctx: ctx, pn: &pn, ref: ref)
+                for person in persons {
+                    y = fitC(y, 16, ctx, &pn, ref, edgeColor)
+                    let check = person.checkId.flatMap { cid in checks.first { $0.id == cid } }
+                    let status = check?.status ?? .pending
+                    let sColor = sc(status)
+                    sColor.setFill(); UIRectFill(CGRect(x: L, y: y + 2, width: 4, height: 12))
+                    txt(person.name, pt(L + 10, y), .systemFont(ofSize: 9, weight: .medium), dark)
+                    if person.ownershipPercent > 0 {
+                        txt("\(String(format: "%.0f", person.ownershipPercent))%", pt(L + 200, y), .systemFont(ofSize: 9), mid)
+                    }
+                    let statusText = status == .passed ? "VERIFIED" : status == .failed ? "FAILED" : "PENDING"
+                    txtR(statusText, y, .systemFont(ofSize: 8, weight: .bold), sColor)
+                    y += 16
+                    if let check, check.amlStatus != nil {
+                        txt("  AML: \(check.amlStatus ?? "—")", pt(L + 10, y), .systemFont(ofSize: 7.5), mid)
+                        if let score = check.amlScore { txt("Score: \(score)", pt(L + 120, y), .systemFont(ofSize: 7.5), mid) }
+                        y += 12
+                    }
+                }
+                y += 8
+            }
+
+            renderTrustSection(title: "Trustees", persons: structure.trustees)
+            renderTrustSection(title: "Settlors", persons: structure.settlors)
+            renderTrustSection(title: "Protectors", persons: structure.protectors)
+            renderTrustSection(title: "Beneficiaries", persons: structure.beneficiaries)
+
+            if let bc = structure.beneficiaryClass, !bc.isEmpty {
+                y = fitC(y, 20, ctx, &pn, ref, edgeColor)
+                txt("Beneficiary Class: \(bc)", pt(L + 10, y), .systemFont(ofSize: 8), mid)
+                y += 16
+            }
 
             // Verdict
             y = fitC(y, 50, ctx, &pn, ref, edgeColor)

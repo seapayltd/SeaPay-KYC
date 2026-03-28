@@ -510,7 +510,7 @@ struct QRScannerView: UIViewControllerRepresentable {
     class QRScannerVC: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
         let onScan: (String) -> Void; private let session = AVCaptureSession(); private var found = false
         init(onScan: @escaping (String) -> Void) { self.onScan = onScan; super.init(nibName: nil, bundle: nil) }
-        required init?(coder: NSCoder) { fatalError() }
+        required init?(coder: NSCoder) { nil }
         override func viewDidLoad() {
             super.viewDidLoad(); view.backgroundColor = .black
             guard let device = AVCaptureDevice.default(for: .video), let input = try? AVCaptureDeviceInput(device: device), session.canAddInput(input) else { return }

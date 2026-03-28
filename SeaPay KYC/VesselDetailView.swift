@@ -1615,10 +1615,10 @@ struct VesselDocAddSheet: View {
                         return
                     }
                 } catch {
-                    print("[Claude] Doc analysis failed: \(error.localizedDescription)")
+                    // Claude doc analysis failed — fall through to manual classify
                 }
             } else {
-                print("[Claude] No API key — skipping AI analysis")
+                // No Claude API key — skip AI analysis
             }
 
             // No Claude or failed — ask for manual classification

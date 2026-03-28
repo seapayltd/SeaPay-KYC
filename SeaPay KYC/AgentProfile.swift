@@ -108,7 +108,7 @@ struct AgentProfile: Codable, Equatable {
 
     var signatureLine: String {
         let name = shortName.isEmpty ? fullName : shortName
-        let org = (companyName?.isEmpty == false) ? (companyName ?? "OceanCheck") : "OceanCheck"
+        let org = companyName.flatMap({ $0.isEmpty ? nil : $0 }) ?? "OceanCheck"
         return "\(name), \(org)"
     }
 

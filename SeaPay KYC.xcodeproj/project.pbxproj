@@ -6,14 +6,66 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		FAB7243C2F7898D200BF10F4 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FAB7243B2F7898D200BF10F4 /* WidgetKit.framework */; };
+		FAB7243E2F7898D200BF10F4 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FAB7243D2F7898D200BF10F4 /* SwiftUI.framework */; };
+		FAB7244F2F7898D300BF10F4 /* Expiry WidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = FAB724392F7898D200BF10F4 /* Expiry WidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		FAB7244D2F7898D300BF10F4 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = FA28F55B2F6611D30024C169 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = FAB724382F7898D200BF10F4;
+			remoteInfo = "Expiry WidgetExtension";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		FAB724542F7898D300BF10F4 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				FAB7244F2F7898D300BF10F4 /* Expiry WidgetExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		FA28F5632F6611D30024C169 /* SeaPay KYC.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "SeaPay KYC.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		FAB724392F7898D200BF10F4 /* Expiry WidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Expiry WidgetExtension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		FAB7243B2F7898D200BF10F4 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		FAB7243D2F7898D200BF10F4 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		FAB724562F789A0500BF10F4 /* Expiry WidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "Expiry WidgetExtension.entitlements"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		FAB724502F7898D300BF10F4 /* Exceptions for "Expiry Widget" folder in "Expiry WidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = FAB724382F7898D200BF10F4 /* Expiry WidgetExtension */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		FA28F5652F6611D30024C169 /* SeaPay KYC */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "SeaPay KYC";
+			sourceTree = "<group>";
+		};
+		FAB7243F2F7898D200BF10F4 /* Expiry Widget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				FAB724502F7898D300BF10F4 /* Exceptions for "Expiry Widget" folder in "Expiry WidgetExtension" target */,
+			);
+			path = "Expiry Widget";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -26,13 +78,25 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		FAB724362F7898D200BF10F4 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FAB7243E2F7898D200BF10F4 /* SwiftUI.framework in Frameworks */,
+				FAB7243C2F7898D200BF10F4 /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		FA28F55A2F6611D30024C169 = {
 			isa = PBXGroup;
 			children = (
+				FAB724562F789A0500BF10F4 /* Expiry WidgetExtension.entitlements */,
 				FA28F5652F6611D30024C169 /* SeaPay KYC */,
+				FAB7243F2F7898D200BF10F4 /* Expiry Widget */,
+				FAB7243A2F7898D200BF10F4 /* Frameworks */,
 				FA28F5642F6611D30024C169 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,8 +105,18 @@
 			isa = PBXGroup;
 			children = (
 				FA28F5632F6611D30024C169 /* SeaPay KYC.app */,
+				FAB724392F7898D200BF10F4 /* Expiry WidgetExtension.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		FAB7243A2F7898D200BF10F4 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				FAB7243B2F7898D200BF10F4 /* WidgetKit.framework */,
+				FAB7243D2F7898D200BF10F4 /* SwiftUI.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -55,10 +129,12 @@
 				FA28F55F2F6611D30024C169 /* Sources */,
 				FA28F5602F6611D30024C169 /* Frameworks */,
 				FA28F5612F6611D30024C169 /* Resources */,
+				FAB724542F7898D300BF10F4 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				FAB7244E2F7898D300BF10F4 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				FA28F5652F6611D30024C169 /* SeaPay KYC */,
@@ -70,6 +146,28 @@
 			productReference = FA28F5632F6611D30024C169 /* SeaPay KYC.app */;
 			productType = "com.apple.product-type.application";
 		};
+		FAB724382F7898D200BF10F4 /* Expiry WidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = FAB724512F7898D300BF10F4 /* Build configuration list for PBXNativeTarget "Expiry WidgetExtension" */;
+			buildPhases = (
+				FAB724352F7898D200BF10F4 /* Sources */,
+				FAB724362F7898D200BF10F4 /* Frameworks */,
+				FAB724372F7898D200BF10F4 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				FAB7243F2F7898D200BF10F4 /* Expiry Widget */,
+			);
+			name = "Expiry WidgetExtension";
+			packageProductDependencies = (
+			);
+			productName = "Expiry WidgetExtension";
+			productReference = FAB724392F7898D200BF10F4 /* Expiry WidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -77,11 +175,14 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2630;
+				LastSwiftUpdateCheck = 2640;
 				LastUpgradeCheck = 2630;
 				TargetAttributes = {
 					FA28F5622F6611D30024C169 = {
 						CreatedOnToolsVersion = 26.3;
+					};
+					FAB724382F7898D200BF10F4 = {
+						CreatedOnToolsVersion = 26.4;
 					};
 				};
 			};
@@ -102,12 +203,20 @@
 			projectRoot = "";
 			targets = (
 				FA28F5622F6611D30024C169 /* SeaPay KYC */,
+				FAB724382F7898D200BF10F4 /* Expiry WidgetExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		FA28F5612F6611D30024C169 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FAB724372F7898D200BF10F4 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -124,7 +233,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		FAB724352F7898D200BF10F4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		FAB7244E2F7898D300BF10F4 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = FAB724382F7898D200BF10F4 /* Expiry WidgetExtension */;
+			targetProxy = FAB7244D2F7898D300BF10F4 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		FA28F56C2F6611D40024C169 /* Debug */ = {
@@ -328,6 +452,70 @@
 			};
 			name = Release;
 		};
+		FAB724522F7898D300BF10F4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = "Expiry WidgetExtension.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = U9KX7AA93P;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Expiry Widget/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Expiry Widget";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.navemagna.SeaPay-KYC.Expiry-Widget";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		FAB724532F7898D300BF10F4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = "Expiry WidgetExtension.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = U9KX7AA93P;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Expiry Widget/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Expiry Widget";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.navemagna.SeaPay-KYC.Expiry-Widget";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -345,6 +533,15 @@
 			buildConfigurations = (
 				FA28F56F2F6611D40024C169 /* Debug */,
 				FA28F5702F6611D40024C169 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		FAB724512F7898D300BF10F4 /* Build configuration list for PBXNativeTarget "Expiry WidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FAB724522F7898D300BF10F4 /* Debug */,
+				FAB724532F7898D300BF10F4 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

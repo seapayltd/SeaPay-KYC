@@ -182,6 +182,7 @@ struct StatusBadge: View {
                 withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { pulse = true }
             }
         }
+        .accessibilityLabel("Status: \(shortLabel)")
     }
 
     private var shouldPulse: Bool { status == .failed || status == .requiresReview }
@@ -335,6 +336,7 @@ struct ProgressBar: View {
             }
         }
         .frame(height: height)
+        .accessibilityLabel("\(value) of \(total) complete")
     }
 }
 

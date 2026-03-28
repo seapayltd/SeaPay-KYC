@@ -78,7 +78,8 @@ TRANSFER & MANAGEMENT
 - Push notifications for document expiry (90, 30, 7, and 1 day warnings)
 
 SECURITY & PRIVACY
-- All data stored locally on device — no cloud storage
+- All data stored locally on device by default
+- Optional iCloud backup (opt-in from Settings)
 - API keys in iOS Keychain
 - HTTPS/TLS for all network communication
 - No analytics, tracking, or third-party SDKs

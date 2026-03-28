@@ -31,6 +31,9 @@ struct SeaPay_KYCApp: App {
     @State private var showAgentSetup = false
     @State private var showOwnerSetup = false
     @State private var ownerImportSuccess = false
+    @State private var isLocked = BiometricService.isEnabled
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage("colorSchemePreference") private var colorSchemePref = 0
     @State private var ownerAccessCode: String? = UserDefaults.standard.string(forKey: "ownerAccessCode")
 
@@ -51,7 +54,11 @@ struct SeaPay_KYCApp: App {
         WindowGroup {
             ZStack {
                 Group {
-                    if ownerAccessCode != nil {
+                    if !hasCompletedOnboarding {
+                        OnboardingView {
+                            withAnimation(.easeInOut(duration: 0.4)) { hasCompletedOnboarding = true }
+                        }
+                    } else if ownerAccessCode != nil {
                         OwnerDashboardView(onSignOut: { ownerAccessCode = nil })
                     } else if appState.isConfigured {
                         HomeView(vm: vm, appState: appState)
@@ -92,12 +99,27 @@ struct SeaPay_KYCApp: App {
                     .zIndex(2)
                 }
 
+                // Biometric lock overlay
+                if isLocked && !showSplash {
+                    BiometricLockView {
+                        Task {
+                            let ok = await BiometricService.authenticate()
+                            if ok { withAnimation(.easeOut(duration: 0.25)) { isLocked = false } }
+                        }
+                    }
+                    .transition(.opacity)
+                    .zIndex(3)
+                }
+
                 // Branded splash overlay — masks initial render while content preloads
                 if showSplash {
                     SplashOverlay()
                         .transition(.opacity.combined(with: .scale(scale: 1.02)))
                         .zIndex(1)
                 }
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .background && BiometricService.isEnabled { isLocked = true }
             }
             .onAppear {
                 // Register font + load data after first frame (splash already visible)
@@ -106,6 +128,13 @@ struct SeaPay_KYCApp: App {
                 vm.loadIfNeeded()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     withAnimation(.easeOut(duration: 0.4)) { showSplash = false }
+                    // Trigger biometric prompt after splash
+                    if isLocked {
+                        Task {
+                            let ok = await BiometricService.authenticate()
+                            if ok { withAnimation(.easeOut(duration: 0.25)) { isLocked = false } }
+                        }
+                    }
                 }
             }
             .preferredColorScheme(preferredColorScheme)
@@ -220,6 +249,8 @@ struct WelcomeView: View {
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.primary.opacity(0.06), lineWidth: 0.5))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("\(title). \(subtitle)")
+        .accessibilityAddTraits(.isButton)
     }
 }
 
@@ -242,6 +273,50 @@ struct SplashOverlay: View {
         }
         .onAppear {
             withAnimation(.easeOut(duration: 0.4)) { appear = true }
+        }
+    }
+}
+
+// MARK: - Biometric Lock View
+
+struct BiometricLockView: View {
+    var onUnlock: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.surface.ignoresSafeArea()
+
+            VStack(spacing: 24) {
+                Spacer()
+
+                Image(systemName: "lock.shield")
+                    .font(.system(size: 52))
+                    .foregroundStyle(.primary.opacity(0.15))
+
+                VStack(spacing: 6) {
+                    Text("OceanCheck Locked").font(BrandFont.brand(24))
+                    Text("Authenticate to access compliance data")
+                        .font(Typo.meta).foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                }
+
+                Spacer()
+
+                Button {
+                    Haptics.light()
+                    onUnlock()
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: BiometricService.biometricIcon)
+                            .font(.system(size: 16))
+                        Text("Unlock with \(BiometricService.biometricName)")
+                            .font(Typo.body).fontWeight(.medium)
+                    }
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .padding(.horizontal, 48)
+                .padding(.bottom, 40)
+            }
         }
     }
 }

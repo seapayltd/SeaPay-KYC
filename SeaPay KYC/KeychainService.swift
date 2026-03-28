@@ -13,12 +13,10 @@ enum KeychainService: Sendable {
 
     enum Key: String, Sendable, CaseIterable {
         case authToken
-        case refreshToken
         case diditAPIKey
         case claudeAPIKey
         case workflowID
         case diditAccessToken
-        case diditTokenExpiry
         case appMode // "agent" or "subject"
     }
 
@@ -72,9 +70,8 @@ enum KeychainService: Sendable {
         }
     }
 
-    /// Deletes auth tokens but keeps API key
+    /// Deletes auth token but keeps API keys
     nonisolated static func deleteAuthTokens() {
         delete(.authToken)
-        delete(.refreshToken)
     }
 }

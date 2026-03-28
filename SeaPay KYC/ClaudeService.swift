@@ -8,12 +8,14 @@
 
 import Foundation
 import UIKit
+import os.log
 
 actor ClaudeService {
     static let shared = ClaudeService()
 
     private let endpoint = "https://api.anthropic.com/v1/messages"
     private let apiVersion = "2023-06-01"
+    private let logger = Logger(subsystem: "com.seapay.kyc", category: "Claude")
 
     private var apiKey: String {
         KeychainService.get(.claudeAPIKey) ?? ""
@@ -23,7 +25,8 @@ actor ClaudeService {
 
     func validateAPIKey() async -> (valid: Bool, error: String?) {
         guard !apiKey.isEmpty else { return (false, "No API key set") }
-        var request = URLRequest(url: URL(string: endpoint)!)
+        guard let url = URL(string: endpoint) else { return (false, "Invalid endpoint URL") }
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
@@ -124,7 +127,8 @@ actor ClaudeService {
 
         let jsonData = try JSONSerialization.data(withJSONObject: body)
 
-        var request = URLRequest(url: URL(string: endpoint)!)
+        guard let url = URL(string: endpoint) else { throw ClaudeError.invalidResponse }
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
@@ -132,7 +136,9 @@ actor ClaudeService {
         request.httpBody = jsonData
         request.timeoutInterval = 60
 
-        print("[Claude] Sending request (\(jsonData.count) bytes)")
+        #if DEBUG
+        logger.debug("Sending request (\(jsonData.count) bytes)")
+        #endif
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
@@ -142,7 +148,7 @@ actor ClaudeService {
 
         guard http.statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? ""
-            print("[Claude] Error \(http.statusCode): \(body.prefix(300))")
+            logger.error("Error \(http.statusCode): \(body.prefix(300))")
             throw ClaudeError.apiError(http.statusCode, body)
         }
 
@@ -154,7 +160,9 @@ actor ClaudeService {
             throw ClaudeError.invalidResponse
         }
 
-        print("[Claude] Raw response: \(text.prefix(200))")
+        #if DEBUG
+        logger.debug("Raw response: \(text.prefix(200))")
+        #endif
 
         // Strip markdown code blocks if present
         text = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -166,7 +174,9 @@ actor ClaudeService {
         guard let textData = text.data(using: .utf8) else { throw ClaudeError.invalidResponse }
 
         let extraction = try JSONDecoder().decode(CoRExtraction.self, from: textData)
-        print("[Claude] Extracted vessel: \(extraction.vesselName ?? "nil")")
+        #if DEBUG
+        logger.debug("Extracted vessel: \(extraction.vesselName ?? "nil")")
+        #endif
         return extraction
     }
 
@@ -196,10 +206,13 @@ actor ClaudeService {
             ]]
         ]
 
-        print("[Claude] extractDocument: \(isPDF ? "PDF" : "image") (\(imageData.count) bytes)")
+        #if DEBUG
+        logger.debug("extractDocument: \(isPDF ? "PDF" : "image") (\(imageData.count) bytes)")
+        #endif
 
         let jsonData = try JSONSerialization.data(withJSONObject: body)
-        var request = URLRequest(url: URL(string: endpoint)!)
+        guard let url = URL(string: endpoint) else { throw ClaudeError.invalidResponse }
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
@@ -211,7 +224,7 @@ actor ClaudeService {
         guard let http = response as? HTTPURLResponse else { throw ClaudeError.invalidResponse }
         guard http.statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? ""
-            print("[Claude] extractDocument error \(http.statusCode): \(body.prefix(200))")
+            logger.error("extractDocument error \(http.statusCode): \(body.prefix(200))")
             throw ClaudeError.apiError(http.statusCode, body)
         }
 
@@ -220,7 +233,9 @@ actor ClaudeService {
               let text = content.first?["text"] as? String else {
             throw ClaudeError.invalidResponse
         }
-        print("[Claude] extractDocument response: \(text.prefix(200))")
+        #if DEBUG
+        logger.debug("extractDocument response: \(text.prefix(200))")
+        #endif
 
         return text
     }

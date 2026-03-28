@@ -11,6 +11,9 @@ import PhotosUI
 import Vision
 import PDFKit
 import UniformTypeIdentifiers
+import os.log
+
+private let corLogger = Logger(subsystem: "com.seapay.kyc", category: "CoR")
 
 struct VesselSheet: View {
     @ObservedObject var vm: KYCViewModel
@@ -846,7 +849,9 @@ struct VesselSheet: View {
         let key = KeychainService.get(.claudeAPIKey)
         guard let key, !key.isEmpty else { return false }
 
-        print("[CoR] Sending raw PDF to Claude (\(pdfData.count) bytes)...")
+        #if DEBUG
+        corLogger.debug("Sending raw PDF to Claude (\(pdfData.count) bytes)")
+        #endif
         await MainActor.run { extractionMethod = "Reading certificate..." }
 
         do {
@@ -859,7 +864,7 @@ struct VesselSheet: View {
             }
             return true
         } catch {
-            print("[CoR] Claude PDF extraction failed: \(error.localizedDescription)")
+            corLogger.error("Claude PDF extraction failed: \(error.localizedDescription)")
             await MainActor.run { extractionMethod = "Claude failed: \(error.localizedDescription.prefix(40))" }
             return false
         }
@@ -868,12 +873,16 @@ struct VesselSheet: View {
     private func extractWithClaude(_ imageData: Data) async -> Bool {
         let key = KeychainService.get(.claudeAPIKey)
         guard let key, !key.isEmpty else {
-            print("[CoR] No Claude API key (key=\(key ?? "nil")), falling back to Vision OCR")
+            #if DEBUG
+            corLogger.debug("No Claude API key, falling back to Vision OCR")
+            #endif
             await MainActor.run { extractionMethod = "Vision OCR (no Claude key)" }
             return false
         }
 
-        print("[CoR] Claude API key found (\(key.prefix(10))...), calling Claude...")
+        #if DEBUG
+        corLogger.debug("Claude API key found, calling Claude...")
+        #endif
         await MainActor.run { extractionMethod = "Calling Claude..." }
 
         do {
@@ -885,7 +894,7 @@ struct VesselSheet: View {
             }
             return true
         } catch {
-            print("[CoR] Claude image extraction failed: \(error.localizedDescription)")
+            corLogger.error("Claude image extraction failed: \(error.localizedDescription)")
             await MainActor.run { extractionMethod = "OCR (\(error.localizedDescription.prefix(40)))" }
             return false
         }
@@ -925,7 +934,9 @@ struct VesselSheet: View {
             ))
         }
 
-        print("[CoR OCR] Total blocks: \(blocks.count)")
+        #if DEBUG
+        corLogger.debug("OCR total blocks: \(blocks.count)")
+        #endif
 
         // ── COLUMN DETECTION ──
         // Group blocks into columns by their X center position.
@@ -952,10 +963,9 @@ struct VesselSheet: View {
         // Sort columns left-to-right
         columns.sort { ($0.first?.x ?? 0) < ($1.first?.x ?? 0) }
 
-        print("[CoR OCR] Detected \(columns.count) columns")
-        for (ci, col) in columns.enumerated() {
-            print("[CoR OCR] Column \(ci) (\(col.count) blocks): \(col.prefix(5).map(\.text).joined(separator: " | "))")
-        }
+        #if DEBUG
+        corLogger.debug("OCR detected \(columns.count) columns")
+        #endif
 
         // ── FIND VESSEL NAME via column structure ──
         // Look for "Name of Ship" in any column, then the value below it in the SAME column
@@ -969,7 +979,9 @@ struct VesselSheet: View {
                         let candidate = col[j].text.trimmingCharacters(in: .whitespaces)
                         if candidate.count >= 2 && !Self.isNotName(candidate) {
                             spatialName = candidate
-                            print("[CoR OCR] Column-aware name: '\(candidate)' (column \(columns.firstIndex(where: { $0.contains(where: { $0.text == block.text }) }) ?? -1), block \(j))")
+                            #if DEBUG
+                            corLogger.debug("Column-aware name: '\(candidate)'")
+                            #endif
                             break
                         }
                     }
@@ -987,7 +999,9 @@ struct VesselSheet: View {
         // Inject the spatial name at the top if found
         if !spatialName.isEmpty {
             columnText = "Name of Ship\n\(spatialName)\n" + columnText
-            print("[CoR OCR] Injected column-detected name: '\(spatialName)'")
+            #if DEBUG
+            corLogger.debug("Injected column-detected name: '\(spatialName)'")
+            #endif
         }
 
         return columnText
@@ -1034,8 +1048,9 @@ struct VesselSheet: View {
         let lines = fullText.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         let upper = fullText.uppercased()
 
-        print("[CoR OCR] Lines: \(lines.count)")
-        for (i, l) in lines.prefix(40).enumerated() { print("[CoR OCR] \(i): \(l)") }
+        #if DEBUG
+        corLogger.debug("OCR lines: \(lines.count)")
+        #endif
 
         var extractedName = ""
         var extractedIMO = ""
@@ -1103,10 +1118,13 @@ struct VesselSheet: View {
         nameCandidates.sort { $0.score > $1.score }
         if let best = nameCandidates.first, best.score >= 25 {
             extractedName = best.text
-            print("[CoR OCR] Name: '\(best.text)' (score \(best.score))")
+            #if DEBUG
+            corLogger.debug("Name: '\(best.text)' (score \(best.score))")
+            #endif
         } else {
-            // Not confident enough — leave empty, show suggestions
-            print("[CoR OCR] Name: low confidence, leaving empty. Top candidates: \(nameCandidates.prefix(5).map { "\($0.text)(\($0.score))" })")
+            #if DEBUG
+            corLogger.debug("Name: low confidence, leaving empty")
+            #endif
         }
 
         // ── IMO NUMBER ──
@@ -1295,7 +1313,7 @@ struct VesselSheet: View {
                 if i+1 < lines.count { builder = lines[i+1] }
             }
             // Year built (from builder line or standalone 4-digit year in builder context)
-            if builder.isEmpty == false && yearBuilt.isEmpty {
+            if !builder.isEmpty && yearBuilt.isEmpty {
                 if let m = builder.range(of: #"\b(19|20)\d{2}\b"#, options: .regularExpression) { yearBuilt = String(builder[m]) }
             }
             // Hull material
@@ -1331,7 +1349,9 @@ struct VesselSheet: View {
 
         // Collect top name suggestions
         let suggestions = Array(Set(nameCandidates.prefix(8).map(\.text))).prefix(5)
-        print("[CoR OCR] RESULT: name='\(extractedName)', imo='\(extractedIMO)', flag='\(extractedFlag)', port='\(extractedPort)', type=\(guessedType?.rawValue ?? "nil")")
+        #if DEBUG
+        corLogger.debug("RESULT: name='\(extractedName)', imo='\(extractedIMO)', flag='\(extractedFlag)'")
+        #endif
 
         await MainActor.run {
             if !extractedName.isEmpty { v.name = extractedName }

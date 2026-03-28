@@ -580,7 +580,7 @@ struct VerificationSheet: View {
             let result = try await vm.runAMLScreening(checkId: c.id)
             amlResult = result
         } catch {
-            print("[AML] Screening failed: \(error.localizedDescription)")
+            // AML screening failed — silently handled, user sees no result
         }
         amlRunning = false
     }
@@ -767,13 +767,13 @@ struct VerificationSheet: View {
         guard url.startAccessingSecurityScopedResource() else { imgError = "Cannot access file"; return nil }
         defer { url.stopAccessingSecurityScopedResource() }
         guard let data = try? Data(contentsOf: url) else { imgError = "Cannot read file"; return nil }
-        print("[File] Loaded \(url.lastPathComponent): \(data.count) bytes, isPDF: \(isPDF(data))")
+        // File loaded successfully
         if isPDF(data) {
             if forAPI {
                 // Render PDF page to JPEG for the verification API
                 guard let img = renderPDF(data) else { imgError = "Cannot render PDF"; return nil }
                 guard let jpeg = img.jpegData(compressionQuality: 0.90) else { imgError = "Cannot convert to JPEG"; return nil }
-                print("[File] PDF rendered to JPEG: \(jpeg.count) bytes")
+                // PDF rendered to JPEG for API submission
                 return jpeg
             } else {
                 return data.count <= 15*1024*1024 ? data : nil

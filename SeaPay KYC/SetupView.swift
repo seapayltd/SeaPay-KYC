@@ -540,6 +540,24 @@ struct SettingsSheet: View {
                         .onChange(of: colorSchemePreference) { _, val in
                             UserDefaults.standard.set(val, forKey: "colorSchemePreference")
                         }
+
+                        if BiometricService.isAvailable {
+                            Divider().padding(.leading, 44)
+                            HStack(spacing: 12) {
+                                Image(systemName: BiometricService.biometricIcon).font(.system(size: 15)).foregroundStyle(.secondary).frame(width: 24)
+                                Text("Lock with \(BiometricService.biometricName)").font(Typo.body).foregroundStyle(.secondary)
+                                Spacer()
+                                Toggle("", isOn: Binding(
+                                    get: { BiometricService.isEnabled },
+                                    set: { newVal in
+                                        BiometricService.isEnabled = newVal
+                                        Haptics.light()
+                                    }
+                                ))
+                                .labelsHidden()
+                            }
+                            .padding(.horizontal, 16).padding(.vertical, 12)
+                        }
                     }
 
                     // MARK: Data

@@ -70,6 +70,7 @@ struct HomeView: View {
                     Button { showSettings = true } label: {
                         Image(systemName: "gearshape").font(.system(size: 14)).foregroundStyle(.secondary)
                     }
+                    .accessibilityLabel("Settings")
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
@@ -81,6 +82,7 @@ struct HomeView: View {
                     } label: {
                         Image(systemName: "ellipsis").font(.system(size: 14)).foregroundStyle(.secondary)
                     }
+                    .accessibilityLabel("More actions")
                 }
             }
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search crew or vessels")
@@ -123,6 +125,7 @@ struct HomeView: View {
                 .padding(.horizontal, 20).padding(.vertical, 10)
                 .background(Color.review.opacity(0.06))
             }
+            .accessibilityLabel(totalExpired > 0 ? "\(totalExpired) expired documents, tap for details" : "\(totalExpiring) documents expiring soon, tap for details")
         }
     }
 
@@ -151,6 +154,7 @@ struct HomeView: View {
                 .shadow(color: .black.opacity(0.25), radius: 16, y: 8)
         }
         .padding(.trailing, 20).padding(.bottom, 20)
+        .accessibilityLabel("Add vessel or crew")
     }
 
     // MARK: - Vessels List
@@ -174,6 +178,7 @@ struct HomeView: View {
                             hasFlag: hasFlag, hasWarning: hasWarning
                         )
                     }
+                    .accessibilityLabel("\(vessel.name), \(seafarers.count) crew, \(crewPassed) verified\(hasFlag ? ", has issues" : hasWarning ? ", needs review" : "")")
                 }
 
                 if vm.vessels.isEmpty { emptyVesselsState }
@@ -425,6 +430,8 @@ struct HomeView: View {
             }
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("\(title) tab\(tab == index ? ", selected" : "")")
+        .accessibilityAddTraits(tab == index ? .isSelected : [])
     }
 
     private func cardBackground(hasFlag: Bool, hasWarning: Bool) -> Color {
