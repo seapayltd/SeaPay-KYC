@@ -55,10 +55,15 @@ struct FleetTabView: View {
                         .font(Typo.meta).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 40)
                 }
                 Spacer(minLength: 20)
-                Button { showCreate = true } label: { Text("Create Workspace") }.buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 48)
-                Button { showJoin = true } label: {
-                    HStack(spacing: 8) { Image(systemName: "link").font(.system(size: 13)); Text("Join with Code") }.font(Typo.body).foregroundStyle(.secondary)
+                if !isCollaborator {
+                    Button { showCreate = true } label: { Text("Create Workspace") }.buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 48)
                 }
+                Button { showJoin = true } label: {
+                    HStack(spacing: 8) { Image(systemName: "link").font(.system(size: 13)); Text(isCollaborator ? "Join a Workspace" : "Join with Code") }
+                        .font(Typo.body).foregroundStyle(isCollaborator ? .primary : .secondary)
+                }
+                .buttonStyle(isCollaborator ? PrimaryButtonStyle() : PrimaryButtonStyle())
+                .padding(.horizontal, isCollaborator ? 48 : 0)
                 Spacer(minLength: 40)
             }
         }.background(Color.surface.ignoresSafeArea())
@@ -171,9 +176,29 @@ struct FleetTabView: View {
 
                 // Leave
                 Button(role: .destructive) {
-                    Task { try? await CollaborationService.shared.leaveWorkspace(); await checkConnection() }
+                    Task {
+                        try? await CollaborationService.shared.leaveWorkspace()
+                        // Collaborators: wipe all synced data (vessels, checks, images)
+                        if isCollaborator {
+                            vm.checks.removeAll()
+                            vm.vessels.removeAll()
+                            vm.saveChecks()
+                            vm.saveVessels()
+                            // Clear images directory
+                            let fm = FileManager.default
+                            if let files = try? fm.contentsOfDirectory(atPath: vm.imagesDir.path) {
+                                for f in files { try? fm.removeItem(at: vm.imagesDir.appendingPathComponent(f)) }
+                            }
+                        }
+                        await checkConnection()
+                    }
                 } label: {
-                    HStack(spacing: 8) { Image(systemName: "rectangle.portrait.and.arrow.right").font(.system(size: 12)); Text("Leave Workspace").font(Typo.meta) }.foregroundStyle(Color.flagged)
+                    VStack(spacing: 4) {
+                        HStack(spacing: 8) { Image(systemName: "rectangle.portrait.and.arrow.right").font(.system(size: 12)); Text("Leave Workspace").font(Typo.meta) }.foregroundStyle(Color.flagged)
+                        if isCollaborator {
+                            Text("All synced data will be removed from this device").font(.system(size: 10)).foregroundStyle(.secondary)
+                        }
+                    }
                 }.padding(.top, 24).padding(.bottom, 40)
             }
         }
