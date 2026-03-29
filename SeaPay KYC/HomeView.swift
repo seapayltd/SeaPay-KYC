@@ -151,7 +151,7 @@ struct HomeView: View {
                     .background(Color.surface.ignoresSafeArea())
                     .navigationTitle("Vessels")
                     .navigationBarTitleDisplayMode(.large)
-                    .toolbar { settingsToolbar; moreActionsToolbar }
+                    .toolbar { settingsToolbar; if !isCollaborator { addButtonToolbar }; moreActionsToolbar }
                     .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search vessels")
                 }
                 .tabItem { Label("Vessels", systemImage: "ferry") }
@@ -167,7 +167,7 @@ struct HomeView: View {
                 .background(Color.surface.ignoresSafeArea())
                 .navigationTitle("People")
                 .navigationBarTitleDisplayMode(.large)
-                .toolbar { settingsToolbar }
+                .toolbar { settingsToolbar; if !isCollaborator { addButtonToolbar } }
                 .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search crew")
             }
             .tabItem { Label("People", systemImage: "person.3") }
@@ -182,21 +182,6 @@ struct HomeView: View {
             }
             .tabItem { Label("Fleet", systemImage: "person.3.sequence") }
             .tag(2)
-
-            // Add (agents only — rightmost, no label, just the icon)
-            if !isCollaborator {
-                Text("")
-                    .tabItem { Label("New", systemImage: "plus.circle.fill") }
-                    .tag(99)
-            }
-        }
-        .onChange(of: tab) { _, newTab in
-            if newTab == 99 {
-                tab = previousTab
-                showAddMenu = true
-            } else {
-                previousTab = newTab
-            }
         }
         .sheet(isPresented: $showAddMenu) {
             AddActionSheet(vm: vm, onAddVessel: { showAddMenu = false; showAddVessel = true },
@@ -240,17 +225,29 @@ struct HomeView: View {
     }
 
     @ToolbarContentBuilder
+    private var addButtonToolbar: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Button { showAddMenu = true } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 16, weight: .semibold))
+            }
+            .accessibilityLabel("Add new")
+        }
+    }
+
+    @ToolbarContentBuilder
     private var moreActionsToolbar: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
             Menu {
                 Button { showBatchInvite = true } label: { Label("Batch Invite", systemImage: "person.2.badge.plus") }
                 Button { showBatchImport = true } label: { Label("Import Crew CSV", systemImage: "square.and.arrow.down") }
                 if !vm.checks.isEmpty {
+                    Divider()
                     Button { csvURL = vm.generateCSV(vesselId: nil); if csvURL != nil { showCSVExport = true } } label: { Label("Export CSV", systemImage: "tablecells") }
                     Button { csvURL = vm.generateXLSX(vesselId: nil); if csvURL != nil { showCSVExport = true } } label: { Label("Export XLSX", systemImage: "doc.richtext") }
                 }
             } label: {
-                Image(systemName: "ellipsis").font(.system(size: 14)).foregroundStyle(.secondary)
+                Image(systemName: "ellipsis.circle").font(.system(size: 16))
             }
             .accessibilityLabel("More actions")
         }

@@ -27,6 +27,7 @@ struct FleetTabView: View {
     @State private var mergeRemoteChecks: [KYCCheck]?
     @State private var downloadURL: IdentifiableURL?
     @State private var showActivity = false
+    @State private var showEditWorkspace = false
     @State private var isSyncingAll = false
     @State private var hasLoadedOnce = false
     private var isCollaborator: Bool { UserDefaults.standard.bool(forKey: "isCollaborator") && AppConfiguration.apiKey.isEmpty }
@@ -37,6 +38,12 @@ struct FleetTabView: View {
         }
         .task { await checkConnection() }
         .sheet(isPresented: $showCreate) { CreateWorkspaceSheet(vm: vm, onCreated: { await refreshMetadata() }) }
+        .sheet(isPresented: $showEditWorkspace) {
+            if let ws = workspaceDetail?.workspace {
+                EditWorkspaceSheet(workspaceName: ws.name, onSave: { await refreshMetadata() })
+                    .presentationDetents([.medium])
+            }
+        }
         .sheet(isPresented: $showJoin) { JoinWorkspaceSheet(vm: vm, onJoined: { await refreshMetadata() }) }
         .sheet(isPresented: $showAddVessel) { AddVesselToWorkspaceSheet(vm: vm, existingVesselIds: Set(workspaceVessels.map(\.vesselId)), onAdded: { await refreshMetadata() }) }
         .sheet(item: $downloadURL) { url in ActivityView(items: [url.url]) }
@@ -115,10 +122,19 @@ struct FleetTabView: View {
                                     }
                                 }
                                 Spacer()
+                                if !isCollaborator {
+                                    Button { showEditWorkspace = true } label: {
+                                        Image(systemName: "pencil").font(.system(size: 13))
+                                            .foregroundStyle(.secondary)
+                                            .frame(width: 32, height: 32)
+                                            .background(Color.surfaceMuted)
+                                            .clipShape(Circle())
+                                    }
+                                }
                                 Button { UIPasteboard.general.string = ws.code; Haptics.light() } label: {
-                                    Image(systemName: "doc.on.doc").font(.system(size: 14))
+                                    Image(systemName: "doc.on.doc").font(.system(size: 13))
                                         .foregroundStyle(.secondary)
-                                        .frame(width: 36, height: 36)
+                                        .frame(width: 32, height: 32)
                                         .background(Color.surfaceMuted)
                                         .clipShape(Circle())
                                 }
@@ -210,12 +226,19 @@ struct FleetTabView: View {
                             Text("ACTIVITY").font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(.secondary).tracking(0.5)
                             Spacer()
-                            Text("\(activity.count)").font(.system(size: 11)).foregroundStyle(.quaternary)
+                            if activity.count > 3 {
+                                Button {
+                                    withAnimation(.smooth(duration: 0.25)) { showActivity.toggle() }
+                                } label: {
+                                    Text(showActivity ? "Show Less" : "Show All (\(activity.count))")
+                                        .font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
+                                }
+                            }
                         }
                         .padding(.horizontal, 16).padding(.top, 24).padding(.bottom, 6)
 
                         LazyVStack(spacing: 4) {
-                            ForEach(activity.prefix(8)) { event in
+                            ForEach(showActivity ? Array(activity.prefix(20)) : Array(activity.prefix(3))) { event in
                                 activityCard(event)
                             }
                         }
@@ -533,6 +556,70 @@ struct AddVesselToWorkspaceSheet: View {
             await onAdded(); Haptics.success(); dismiss()
         } catch { self.error = error.localizedDescription }
         isAdding = false
+    }
+}
+
+// MARK: - Edit Workspace Sheet
+
+struct EditWorkspaceSheet: View {
+    let workspaceName: String
+    var onSave: () async -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var name: String = ""
+    @State private var scenario: FleetScenario = .preSurvey
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Workspace Name").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+                    TextField("Name", text: $name)
+                        .font(.system(size: 16)).textFieldStyle(.roundedBorder)
+                }
+                .padding(.horizontal, 20)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Purpose").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+                        .padding(.horizontal, 20)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(FleetScenario.allCases) { s in
+                                Button { scenario = s } label: {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: s.icon).font(.system(size: 11))
+                                        Text(s.shortName).font(.system(size: 12, weight: scenario == s ? .semibold : .regular))
+                                    }
+                                    .foregroundStyle(scenario == s ? .primary : .secondary)
+                                    .padding(.horizontal, 12).padding(.vertical, 8)
+                                    .background(scenario == s ? Color.primary.opacity(0.08) : Color.surfaceMuted)
+                                    .clipShape(Capsule())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                    }
+                }
+
+                Spacer()
+            }
+            .padding(.top, 16)
+            .navigationTitle("Edit Workspace")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        // TODO: Push name/scenario to backend when endpoint exists
+                        Haptics.light()
+                        Task { await onSave() }
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+            .onAppear { name = workspaceName }
+        }
     }
 }
 
