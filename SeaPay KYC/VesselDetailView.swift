@@ -659,13 +659,14 @@ struct VesselDocDetailSheet: View {
                     if !document.imagePaths.isEmpty {
                         ForEach(document.imagePaths, id: \.self) { path in
                             if let data = vm.loadDocumentImage(filename: path) {
-                                if let img = UIImage(data: data) {
+                                let isPDF = path.lowercased().hasSuffix(".pdf") || data.prefix(5) == Data([0x25, 0x50, 0x44, 0x46, 0x2D])
+                                if !isPDF, let img = UIImage(data: data) {
                                     // It's an image (JPEG/PNG)
                                     Image(uiImage: img).resizable().scaledToFit()
                                         .frame(maxHeight: 300)
                                         .clipShape(RoundedRectangle(cornerRadius: 12))
                                         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.06), lineWidth: 1))
-                                } else if let pdfDoc = PDFDocument(data: data), let page = pdfDoc.page(at: 0) {
+                                } else if isPDF, let pdfDoc = PDFDocument(data: data), let page = pdfDoc.page(at: 0) {
                                     // It's a PDF — render first page
                                     let bounds = page.bounds(for: .mediaBox)
                                     let renderer = UIGraphicsImageRenderer(size: CGSize(width: bounds.width * 2, height: bounds.height * 2))

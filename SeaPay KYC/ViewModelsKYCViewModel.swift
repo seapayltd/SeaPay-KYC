@@ -428,7 +428,7 @@ class KYCViewModel: ObservableObject {
     }
 
     struct PortfolioItem: Identifiable {
-        var id: String { type.rawValue }
+        let id = UUID().uuidString
         let type: MaritimeDocType; var document: CrewDocument?; let required: Bool
     }
 
@@ -535,7 +535,7 @@ class KYCViewModel: ObservableObject {
     }
 
     struct VesselPortfolioItem: Identifiable {
-        var id: String { type.rawValue }
+        let id = UUID().uuidString
         let type: VesselDocType; var document: CrewDocument?; let required: Bool; let reason: String?
     }
 
