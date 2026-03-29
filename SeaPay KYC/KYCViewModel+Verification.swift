@@ -156,6 +156,7 @@ extension KYCViewModel {
         let fp = imagesDir.appendingPathComponent("\(checkId)_poa.jpg")
         try? documentImage.write(to: fp)
         checks[i].documentImagePaths = (checks[i].documentImagePaths ?? []) + [fp.lastPathComponent]
+        queueFileForSync(filename: fp.lastPathComponent, vesselId: checks[i].vesselId)
 
         onProgress("Verifying address...")
         let api = services.api

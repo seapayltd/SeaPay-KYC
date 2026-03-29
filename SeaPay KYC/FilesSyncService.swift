@@ -169,7 +169,11 @@ class FilesSyncService: ObservableObject {
         return (try? JSONDecoder().decode([RemoteFile].self, from: arrData)) ?? []
     }
 
-    // MARK: - Upload Single File (returns success)
+    // MARK: - Upload Single File (public for background queue)
+
+    func uploadSingleFile(filename: String, data: Data, vesselId: String, token: String) async -> Bool {
+        return await uploadFile(filename: filename, data: data, vesselId: vesselId, token: token)
+    }
 
     private func uploadFile(filename: String, data: Data, vesselId: String, token: String) async -> Bool {
         guard let url = URL(string: "\(baseURL)/files.php?action=upload") else { return false }

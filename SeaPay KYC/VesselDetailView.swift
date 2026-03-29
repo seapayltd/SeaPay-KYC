@@ -1640,6 +1640,7 @@ struct VesselDocAddSheet: View {
             let filename = "\(vesselId)_\(vdt.rawValue.prefix(10).replacingOccurrences(of: " ", with: "_"))_\(UUID().uuidString.prefix(6)).\(ext)"
             try? data.write(to: vm.imagesDir.appendingPathComponent(filename))
             paths.append(filename)
+            vm.queueFileForSync(filename: filename, vesselId: vesselId)
         }
         let doc = CrewDocument(vesselDocType: vdt, imagePaths: paths,
             documentNumber: docNumber.isEmpty ? nil : docNumber,

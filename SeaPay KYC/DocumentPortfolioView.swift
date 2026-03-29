@@ -357,6 +357,9 @@ struct QuickAddSheet: View {
             let url = vm.imagesDir.appendingPathComponent(filename)
             try? data.write(to: url)
             paths.append(filename)
+            // Auto-upload to workspace if connected
+            let vesselId = vm.checks.first(where: { $0.id == checkId })?.vesselId
+            vm.queueFileForSync(filename: filename, vesselId: vesselId)
         }
         let doc = CrewDocument(
             type: docType,

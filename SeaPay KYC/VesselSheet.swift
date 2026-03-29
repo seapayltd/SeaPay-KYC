@@ -749,7 +749,9 @@ struct VesselSheet: View {
         full.registrationDate = v.registrationDate; full.certificateExpiry = v.certificateExpiry
         vm.updateVessel(full)
         if let data = corImage {
-            try? data.write(to: vm.imagesDir.appendingPathComponent("\(full.id)_cor.jpg"))
+            let corFilename = "\(full.id)_cor.jpg"
+            try? data.write(to: vm.imagesDir.appendingPathComponent(corFilename))
+            vm.queueFileForSync(filename: corFilename, vesselId: full.id)
         }
         createdVesselId = full.id
         showPhotoPrompt = true

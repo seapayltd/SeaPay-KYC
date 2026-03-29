@@ -266,6 +266,19 @@ class KYCViewModel: ObservableObject {
         imageCache.removeObject(forKey: filename as NSString)
     }
 
+    /// Queue a file for background upload to the workspace (if connected).
+    /// Called after any local file save so collaborators get files automatically.
+    func queueFileForSync(filename: String, vesselId: String?) {
+        guard CollaborationService.shared.isConnected,
+              let token = CollaborationService.shared.workspace?.token,
+              let vid = vesselId else { return }
+        Task {
+            let filePath = imagesDir.appendingPathComponent(filename)
+            guard let data = try? Data(contentsOf: filePath) else { return }
+            _ = await FilesSyncService.shared.uploadSingleFile(filename: filename, data: data, vesselId: vid, token: token)
+        }
+    }
+
     // MARK: - Vessel CRUD
 
     @discardableResult
@@ -308,6 +321,7 @@ class KYCViewModel: ObservableObject {
         guard let i = vessels.firstIndex(where: { $0.id == vesselId }) else { return }
         vessels[i].photoFilename = filename
         saveVessels()
+        queueFileForSync(filename: filename, vesselId: vesselId)
     }
 
     func deleteVesselPhoto(vesselId: String) {
@@ -555,6 +569,7 @@ class KYCViewModel: ObservableObject {
         let filename = "\(checkId)_profile.jpg"
         try? imageData.write(to: imagesDir.appendingPathComponent(filename))
         checks[i].profilePhoto = filename; saveChecks()
+        queueFileForSync(filename: filename, vesselId: checks[i].vesselId)
     }
 
     // MARK: - Create Check
@@ -591,7 +606,11 @@ class KYCViewModel: ObservableObject {
         var paths: [String] = []
         let fp = imagesDir.appendingPathComponent("\(checkId)_front.jpg"); try? front.write(to: fp); paths.append(fp.lastPathComponent)
         if let b = back { let bp = imagesDir.appendingPathComponent("\(checkId)_back.jpg"); try? b.write(to: bp); paths.append(bp.lastPathComponent) }
-        if let i = checkIndex(checkId) { checks[i].documentImagePaths = paths; saveChecks() }
+        if let i = checkIndex(checkId) {
+            checks[i].documentImagePaths = paths; saveChecks()
+            // Auto-upload to workspace
+            for p in paths { queueFileForSync(filename: p, vesselId: checks[i].vesselId) }
+        }
         return paths
     }
 
