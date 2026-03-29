@@ -180,10 +180,10 @@ struct HomeView: View {
             .tabItem { Label("Fleet", systemImage: "person.3.sequence") }
             .tag(2)
 
-            // Add (agents only — rightmost, opens action sheet)
+            // Add (agents only — rightmost, no label, just the icon)
             if !isCollaborator {
                 Text("")
-                    .tabItem { Label("Add", systemImage: "plus") }
+                    .tabItem { Label("New", systemImage: "plus.circle.fill") }
                     .tag(99)
             }
         }

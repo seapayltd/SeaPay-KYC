@@ -28,6 +28,7 @@ struct FleetTabView: View {
     @State private var downloadURL: IdentifiableURL?
     @State private var showActivity = false
     @State private var isSyncingAll = false
+    @State private var hasLoadedOnce = false
     private var isCollaborator: Bool { UserDefaults.standard.bool(forKey: "isCollaborator") && AppConfiguration.apiKey.isEmpty }
 
     var body: some View {
@@ -35,9 +36,9 @@ struct FleetTabView: View {
             if isConnected { connectedView } else { disconnectedView }
         }
         .task { await checkConnection() }
-        .sheet(isPresented: $showCreate) { CreateWorkspaceSheet(vm: vm, onCreated: { await refresh() }) }
-        .sheet(isPresented: $showJoin) { JoinWorkspaceSheet(vm: vm, onJoined: { await refresh() }) }
-        .sheet(isPresented: $showAddVessel) { AddVesselToWorkspaceSheet(vm: vm, existingVesselIds: Set(workspaceVessels.map(\.vesselId)), onAdded: { await refresh() }) }
+        .sheet(isPresented: $showCreate) { CreateWorkspaceSheet(vm: vm, onCreated: { await refreshMetadata() }) }
+        .sheet(isPresented: $showJoin) { JoinWorkspaceSheet(vm: vm, onJoined: { await refreshMetadata() }) }
+        .sheet(isPresented: $showAddVessel) { AddVesselToWorkspaceSheet(vm: vm, existingVesselIds: Set(workspaceVessels.map(\.vesselId)), onAdded: { await refreshMetadata() }) }
         .sheet(item: $downloadURL) { url in ActivityView(items: [url.url]) }
         .sheet(isPresented: Binding(get: { mergeDiff != nil }, set: { if !$0 { mergeDiff = nil } })) {
             if let diff = mergeDiff, let vid = mergeVesselId {
@@ -261,7 +262,7 @@ struct FleetTabView: View {
                 }
             }
             .background(Color.surface.ignoresSafeArea())
-            .refreshable { await refresh() }
+            .refreshable { await fullRefresh() }
         }
     }
 
@@ -300,7 +301,7 @@ struct FleetTabView: View {
             if !isCollaborator {
                 Divider()
                 Button(role: .destructive) {
-                    Task { try? await CollaborationService.shared.removeVesselFromWorkspace(vesselId: wv.vesselId); await refresh() }
+                    Task { try? await CollaborationService.shared.removeVesselFromWorkspace(vesselId: wv.vesselId); await refreshMetadata() }
                 } label: { Label("Remove from Workspace", systemImage: "minus.circle") }
             }
         }
@@ -333,10 +334,17 @@ struct FleetTabView: View {
 
     private func checkConnection() async {
         isConnected = CollaborationService.shared.isConnected
-        if isConnected { await refresh() }
+        guard isConnected else { return }
+        // First load: fetch metadata + full sync. Subsequent: metadata only.
+        await refreshMetadata()
+        if !hasLoadedOnce {
+            hasLoadedOnce = true
+            await syncAllVessels()
+        }
     }
 
-    private func refresh() async {
+    /// Lightweight — just workspace info, vessel list, activity. No data sync.
+    private func refreshMetadata() async {
         isConnected = CollaborationService.shared.isConnected
         guard isConnected else { return }
         do {
@@ -344,8 +352,13 @@ struct FleetTabView: View {
             workspaceVessels = try await CollaborationService.shared.listWorkspaceVessels()
             activity = try await CollaborationService.shared.getActivity()
             error = nil
-            await syncAllVessels()
         } catch { self.error = error.localizedDescription }
+    }
+
+    /// Full sync — pull-to-refresh triggers this
+    private func fullRefresh() async {
+        await refreshMetadata()
+        await syncAllVessels()
     }
 
     private func syncAllVessels() async {
