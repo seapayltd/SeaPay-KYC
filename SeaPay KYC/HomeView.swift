@@ -323,80 +323,20 @@ struct HomeView: View {
     // MARK: - Vessel Card
 
     private func vesselCard(vessel: Vessel, seafarers: [KYCCheck], compliance: [KYCCheck], crewPassed: Int, compPassed: Int, hasFlag: Bool, hasWarning: Bool) -> some View {
-        let photoData = vessel.photoFilename.flatMap { vm.loadDocumentImage(filename: $0) }
-        return VStack(spacing: 0) {
-            // Hero image area
-            ZStack(alignment: .topTrailing) {
-                HeroImageView(
-                    imageData: photoData,
-                    fallbackIcon: vessel.vesselType?.icon ?? "ferry",
-                    overlayTitle: photoData != nil ? vessel.name : nil,
-                    aspectRatio: 16.0 / 9.0
-                )
-
-                // Status dot
-                if hasFlag || hasWarning {
-                    Circle().fill(hasFlag ? Color.flagged : Color.review)
-                        .frame(width: 10, height: 10)
-                        .padding(12)
-                }
-            }
-
-            // Info below image
-            VStack(alignment: .leading, spacing: 10) {
-                // Name (only if no photo — if photo, it's overlaid)
-                if photoData == nil {
-                    HStack {
-                        Text(vessel.name).font(.system(size: 18, weight: .bold)).foregroundStyle(.primary)
-                        Spacer()
-                        Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.quaternary)
-                    }
-                }
-
-                // Type + flag
-                HStack(spacing: 8) {
-                    if let vt = vessel.vesselType {
-                        Label(vt.rawValue, systemImage: vt.icon).font(Typo.meta).foregroundStyle(.secondary)
-                    }
-                    if !vessel.flagState.isEmpty {
-                        Text("·").foregroundStyle(.quaternary)
-                        Text(vessel.flagState).font(Typo.meta).foregroundStyle(.tertiary)
-                    }
-                    Spacer()
-                    if vessel.photoFilename != nil {
-                        Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.quaternary)
-                    }
-                }
-
-                // Stats
-                if !seafarers.isEmpty || !compliance.isEmpty {
-                    Divider().opacity(0.3)
-                    HStack(spacing: 20) {
-                        if !seafarers.isEmpty {
-                            miniStat("\(crewPassed)/\(seafarers.count)", "Crew", crewPassed == seafarers.count ? .clear_ : .review)
-                        }
-                        if !compliance.isEmpty {
-                            miniStat("\(compPassed)/\(compliance.count)", "Compliance", compPassed == compliance.count ? .clear_ : .review)
-                        }
-                        Spacer()
-                    }
-
-                    // Status summary sentence
-                    let flaggedCount = seafarers.filter { $0.status == .failed }.count + compliance.filter { $0.status == .failed }.count
-                    let reviewCount = seafarers.filter { $0.status == .requiresReview }.count
-                    if flaggedCount > 0 || reviewCount > 0 {
-                        Text(statusSummary(flagged: flaggedCount, review: reviewCount))
-                            .font(Typo.meta).foregroundStyle(flaggedCount > 0 ? Color.flagged : Color.review)
-                    }
-                } else {
-                    Text("Ready for crew").font(Typo.meta).foregroundStyle(.quaternary)
-                }
-            }
-            .padding(.horizontal, 18).padding(.vertical, 14)
-        }
-        .background(cardBackground(hasFlag: hasFlag, hasWarning: hasWarning))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.primary.opacity(0.06), lineWidth: 0.5))
+        WalletVesselCard(
+            vesselName: vessel.name,
+            vesselType: vessel.vesselType?.rawValue,
+            vesselTypeIcon: vessel.vesselType?.icon ?? "ferry",
+            flagState: vessel.flagState,
+            imoNumber: vessel.imoNumber,
+            photoData: vessel.photoFilename.flatMap { vm.loadDocumentImage(filename: $0) },
+            crewCount: seafarers.count,
+            crewPassed: crewPassed,
+            complianceCount: compliance.count,
+            compliancePassed: compPassed,
+            hasFlag: hasFlag,
+            hasWarning: hasWarning
+        )
     }
 
     // MARK: - Empty Vessels State

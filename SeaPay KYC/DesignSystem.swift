@@ -155,6 +155,108 @@ enum Haptics {
     static func medium() { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
 }
 
+// MARK: - Wallet Vessel Card (Apple Wallet-style stacked card)
+
+struct WalletVesselCard: View {
+    let vesselName: String
+    let vesselType: String?
+    let vesselTypeIcon: String
+    let flagState: String
+    let imoNumber: String
+    let photoData: Data?
+    let crewCount: Int
+    let crewPassed: Int
+    let complianceCount: Int
+    let compliancePassed: Int
+    let hasFlag: Bool
+    let hasWarning: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Card face — photo or dark gradient
+            ZStack(alignment: .bottom) {
+                // Background
+                if let data = photoData, let img = UIImage(data: data) {
+                    Image(uiImage: img).resizable().scaledToFill()
+                        .frame(height: 170).clipped()
+                        .overlay {
+                            LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .top, endPoint: .bottom)
+                        }
+                } else {
+                    LinearGradient(colors: [Color(.systemGray4), Color(.systemGray6)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        .frame(height: 170)
+                        .overlay {
+                            Image(systemName: vesselTypeIcon)
+                                .font(.system(size: 40)).foregroundStyle(.white.opacity(0.12))
+                        }
+                }
+
+                // Card info overlay
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(vesselName)
+                                .font(.system(size: 20, weight: .bold))
+                                .foregroundStyle(photoData != nil ? .white : .primary)
+                                .lineLimit(1)
+                            HStack(spacing: 6) {
+                                if let vt = vesselType {
+                                    Text(vt).font(.system(size: 11, weight: .medium))
+                                }
+                                if !flagState.isEmpty {
+                                    Text("·")
+                                    Text(flagState)
+                                }
+                                if !imoNumber.isEmpty {
+                                    Text("·")
+                                    Text("IMO \(imoNumber)")
+                                }
+                            }
+                            .font(.system(size: 11))
+                            .foregroundStyle(photoData != nil ? .white.opacity(0.7) : .secondary)
+                        }
+                        Spacer()
+                        // Status indicator
+                        if hasFlag || hasWarning {
+                            Circle().fill(hasFlag ? Color.flagged : Color.review)
+                                .frame(width: 10, height: 10)
+                        }
+                    }
+
+                    // Stats bar
+                    HStack(spacing: 16) {
+                        if crewCount > 0 {
+                            HStack(spacing: 4) {
+                                Image(systemName: "person.2").font(.system(size: 10))
+                                Text("\(crewPassed)/\(crewCount)")
+                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            }
+                            .foregroundStyle(crewPassed == crewCount ? (photoData != nil ? .white : Color.clear_) : (photoData != nil ? .white.opacity(0.8) : Color.review))
+                        }
+                        if complianceCount > 0 {
+                            HStack(spacing: 4) {
+                                Image(systemName: "checkmark.shield").font(.system(size: 10))
+                                Text("\(compliancePassed)/\(complianceCount)")
+                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            }
+                            .foregroundStyle(compliancePassed == complianceCount ? (photoData != nil ? .white : Color.clear_) : (photoData != nil ? .white.opacity(0.8) : Color.review))
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(photoData != nil ? .white.opacity(0.5) : Color.secondary.opacity(0.5))
+                    }
+                }
+                .padding(16)
+            }
+        }
+        .background(Color.surfaceRaised)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .shadow(color: .black.opacity(0.08), radius: 8, y: 4)
+        .shadow(color: .black.opacity(0.04), radius: 2, y: 1)
+    }
+}
+
 // MARK: - Status Badge (dot + label, pulse animation for flagged)
 
 struct StatusBadge: View {

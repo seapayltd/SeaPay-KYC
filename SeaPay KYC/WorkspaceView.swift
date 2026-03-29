@@ -269,37 +269,27 @@ struct FleetTabView: View {
 
     private func vesselRow(_ wv: WorkspaceVessel, localVessel: Vessel?) -> some View {
         let crew = localVessel.map { vm.checksForVessel($0.id) } ?? []
-        let scenario = wv.fleetScenario
-        let requiredDocs = scenario?.requiredVesselDocTypes ?? []
-        let existingDocs = (localVessel?.documents ?? []).filter { !$0.isArchived }
-        let docsReady = requiredDocs.filter { req in existingDocs.contains(where: { $0.vesselDocType == req }) }.count
+        let crewPassed = crew.filter { $0.status == .passed }.count
+        let compliance = localVessel.map { vm.complianceChecksForVessel($0.id) } ?? []
+        let compPassed = compliance.filter { $0.status == .passed }.count
+        let hasFlag = crew.contains { $0.status == .failed } || compliance.contains { $0.status == .failed }
+        let hasWarning = !hasFlag && (crew.contains { $0.status == .requiresReview } || compliance.contains { $0.status == .requiresReview })
 
-        return HStack(spacing: 14) {
-            // Icon
-            Circle().fill(Color.surfaceMuted).frame(width: 42, height: 42)
-                .overlay { Image(systemName: localVessel?.vesselType?.icon ?? "ferry").font(.system(size: 15)).foregroundStyle(.secondary) }
-
-            // Info
-            VStack(alignment: .leading, spacing: 4) {
-                Text(wv.vesselName).font(.system(size: 14, weight: .semibold)).lineLimit(1)
-                HStack(spacing: 6) {
-                    if let s = scenario {
-                        Text(s.shortName).font(.system(size: 10, weight: .medium))
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Color.surfaceMuted).clipShape(Capsule())
-                    }
-                    Text("\(crew.count) crew").font(Typo.meta).foregroundStyle(.secondary)
-                }
-                if !requiredDocs.isEmpty {
-                    ProgressBar(value: docsReady, total: requiredDocs.count, height: 2)
-                }
-            }
-
-            Spacer()
-
-            Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.quaternary)
-        }
-        .padding(.horizontal, 16).padding(.vertical, 12)
+        return WalletVesselCard(
+            vesselName: wv.vesselName,
+            vesselType: localVessel?.vesselType?.rawValue,
+            vesselTypeIcon: localVessel?.vesselType?.icon ?? "ferry",
+            flagState: localVessel?.flagState ?? "",
+            imoNumber: wv.vesselImo,
+            photoData: localVessel?.photoFilename.flatMap { vm.loadDocumentImage(filename: $0) },
+            crewCount: crew.count,
+            crewPassed: crewPassed,
+            complianceCount: compliance.count,
+            compliancePassed: compPassed,
+            hasFlag: hasFlag,
+            hasWarning: hasWarning
+        )
+        .padding(.horizontal, 16)
         .contextMenu {
             if !isCollaborator {
                 Button { Task { await pushVessel(wv) } } label: { Label("Push Changes", systemImage: "arrow.up.circle") }
