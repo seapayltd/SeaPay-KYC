@@ -343,7 +343,7 @@ struct PersonDetailView: View {
 
 // MARK: - Make ReviewDecisionType Identifiable for sheet binding
 
-extension ReviewCeremonyView.ReviewDecisionType: @retroactive Identifiable {
+extension ReviewCeremonyView.ReviewDecisionType: Identifiable {
     public var id: String {
         switch self {
         case .approve: return "approve"

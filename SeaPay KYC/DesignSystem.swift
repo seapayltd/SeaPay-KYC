@@ -199,7 +199,7 @@ struct StatusBadge: View {
         }
         .onAppear {
             if shouldPulse {
-                withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { pulse = true }
+                withAnimation(.easeInOut(duration: 0.6)) { pulse = true }
             }
         }
         .accessibilityLabel("Status: \(shortLabel)")
