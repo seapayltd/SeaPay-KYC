@@ -388,7 +388,7 @@ struct DocumentDetailSheet: View {
     @State private var showRenew = false
     @State private var previewImage: UIImage?
     @State private var previewFilename: String?
-    @State private var shareURL: IdentifiableURL?
+    @State private var shareData: Data?
 
     var body: some View {
         NavigationStack {
@@ -409,12 +409,7 @@ struct DocumentDetailSheet: View {
                             Button {
                                 previewFilename = path
                                 if isPDF {
-                                    // Copy to temp for sharing (avoids sandbox issues)
-                                    let src = vm.imagesDir.appendingPathComponent(path)
-                                    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(path)
-                                    try? FileManager.default.removeItem(at: tmp)
-                                    try? FileManager.default.copyItem(at: src, to: tmp)
-                                    shareURL = IdentifiableURL(url: tmp)
+                                    shareData = data
                                 } else if let img = UIImage(data: data) {
                                     previewImage = img
                                 }
@@ -530,7 +525,9 @@ struct DocumentDetailSheet: View {
             )) { item in
                 ImagePreviewView(image: item.image, filename: item.filename, imagesDir: vm.imagesDir)
             }
-            .sheet(item: $shareURL) { url in ActivityView(items: [url.url]) }
+            .sheet(isPresented: Binding(get: { shareData != nil }, set: { if !$0 { shareData = nil } })) {
+                if let data = shareData { ActivityView(items: [data]) }
+            }
         }
     }
 }
@@ -554,54 +551,48 @@ struct ImagePreviewView: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            // Centered image with proper aspect ratio
-            GeometryReader { geo in
-                let imgSize = image.size
-                let scale = min(geo.size.width / imgSize.width, geo.size.height / imgSize.height, 1)
-                let displaySize = CGSize(width: imgSize.width * scale, height: imgSize.height * scale)
-
+            // Centered image
+            VStack {
+                Spacer()
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
-                    .frame(width: displaySize.width, height: displaySize.height)
-                    .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                    .padding(.horizontal, 2)
+                Spacer()
             }
 
-            // Top bar
+            // Floating controls
             VStack {
                 HStack {
                     Button { dismiss() } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(.white)
-                            .frame(width: 36, height: 36)
-                            .background(.ultraThinMaterial.opacity(0.6))
+                            .frame(width: 34, height: 34)
+                            .background(Color.white.opacity(0.15))
                             .clipShape(Circle())
                     }
-                    Spacer()
-                    Text(filename).font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).lineLimit(1)
                     Spacer()
                     Button { showShare = true } label: {
                         Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(.white)
-                            .frame(width: 36, height: 36)
-                            .background(.ultraThinMaterial.opacity(0.6))
+                            .frame(width: 34, height: 34)
+                            .background(Color.white.opacity(0.15))
                             .clipShape(Circle())
                     }
                 }
-                .padding(.horizontal, 16).padding(.top, 56)
+                .padding(.horizontal, 16).padding(.top, 54)
                 Spacer()
             }
         }
         .ignoresSafeArea()
+        .statusBarHidden()
         .sheet(isPresented: $showShare) {
-            // Copy file to temp dir for sharing (avoids sandbox permission issues)
-            let src = imagesDir.appendingPathComponent(filename)
-            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
-            let _ = try? FileManager.default.removeItem(at: tmp)
-            let _ = try? FileManager.default.copyItem(at: src, to: tmp)
-            ActivityView(items: [tmp])
+            // Share image data directly — avoids all sandbox/URL issues
+            if let data = image.jpegData(compressionQuality: 0.95) {
+                ActivityView(items: [data])
+            }
         }
     }
 }

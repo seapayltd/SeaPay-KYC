@@ -637,7 +637,8 @@ struct VesselDocDetailSheet: View {
     @State private var showHistory = false
     @State private var previewImage: UIImage?
     @State private var previewFilename: String?
-    @State private var shareURL: IdentifiableURL?
+    @State private var shareData: Data?
+    @State private var shareFilename: String?
 
     private var allVersions: [CrewDocument] {
         let vessel = vm.vessels.first(where: { $0.id == vesselId })
@@ -665,12 +666,8 @@ struct VesselDocDetailSheet: View {
                                 let isPDF = path.lowercased().hasSuffix(".pdf") || data.prefix(5) == Data([0x25, 0x50, 0x44, 0x46, 0x2D])
                                 Button {
                                     if isPDF {
-                                        // Copy to temp for sharing (avoids sandbox issues)
-                                        let src = vm.imagesDir.appendingPathComponent(path)
-                                        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(path)
-                                        try? FileManager.default.removeItem(at: tmp)
-                                        try? FileManager.default.copyItem(at: src, to: tmp)
-                                        shareURL = IdentifiableURL(url: tmp)
+                                        // Share PDF data directly via ActivityView
+                                        shareData = data; shareFilename = path
                                     } else if let img = UIImage(data: data) {
                                         previewImage = img; previewFilename = path
                                     }
@@ -812,7 +809,9 @@ struct VesselDocDetailSheet: View {
             )) { item in
                 ImagePreviewView(image: item.image, filename: item.filename, imagesDir: vm.imagesDir)
             }
-            .sheet(item: $shareURL) { url in ActivityView(items: [url.url]) }
+            .sheet(isPresented: Binding(get: { shareData != nil }, set: { if !$0 { shareData = nil } })) {
+                if let data = shareData { ActivityView(items: [data]) }
+            }
         }
     }
 
