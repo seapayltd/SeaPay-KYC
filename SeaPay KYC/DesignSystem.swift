@@ -54,6 +54,22 @@ extension Color {
     static let pass = Color.clear_
     static let fail = Color.flagged
     static let warning = Color.review
+
+    // Semantic text
+    static let textPrimary = Color.primary
+    static let textSecondary = Color.secondary
+    static let textTertiary = Color(.tertiaryLabel)
+    static let separator = Color.primary.opacity(0.06)
+}
+
+// MARK: - Spacing (4pt grid)
+enum Space {
+    static let xs: CGFloat = 4
+    static let sm: CGFloat = 8
+    static let md: CGFloat = 12
+    static let lg: CGFloat = 16
+    static let xl: CGFloat = 24
+    static let xxl: CGFloat = 32
 }
 
 // MARK: - Typography System (4 sizes)
@@ -64,10 +80,14 @@ extension Color {
 //  meta:    11pt — labels, timestamps, supporting text
 
 enum Typo {
+    static let title: Font = .system(size: 20, weight: .semibold)
+    static let body: Font = .system(size: 14)
+    static let caption: Font = .system(size: 12, weight: .medium)
+    static let micro: Font = .system(size: 10)
+    // Legacy — remove after full migration
     static let hero: Font = .system(size: 32, weight: .bold)
     static let context: Font = .system(size: 16, weight: .semibold)
     static let stat: Font = .system(size: 18, weight: .bold, design: .rounded)
-    static let body: Font = .system(size: 13, weight: .medium)
     static let meta: Font = .system(size: 11)
 }
 
@@ -100,6 +120,15 @@ struct SecondaryButtonStyle: ButtonStyle {
     }
 }
 
+struct InlineButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 14, weight: .medium))
+            .foregroundStyle(Color.primary)
+            .opacity(configuration.isPressed ? 0.5 : 1)
+    }
+}
+
 // MARK: - iPad Content Width
 
 struct ContentWidth: ViewModifier {
@@ -117,18 +146,17 @@ extension View {
     func iPadOptimized() -> some View { modifier(ContentWidth()) }
 }
 
-// MARK: - Card (clean, no shadow noise)
+// MARK: - Card Component
 
 struct CardView<Content: View>: View {
-    var padded = true
-    let content: Content
-    init(padded: Bool = true, @ViewBuilder content: () -> Content) { self.padded = padded; self.content = content() }
+    let content: () -> Content
+    init(@ViewBuilder content: @escaping () -> Content) { self.content = content }
     var body: some View {
-        content
-            .padding(padded ? 16 : 0)
-            .background(Color.surface)
+        content()
+            .padding(Space.lg)
+            .background(Color.surfaceRaised)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.primary.opacity(0.06), lineWidth: 0.5))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.separator, lineWidth: 0.5))
     }
 }
 
