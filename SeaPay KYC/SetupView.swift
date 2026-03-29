@@ -360,7 +360,6 @@ struct SettingsSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
             ScrollView {
                 VStack(spacing: 0) {
                     // Profile header
@@ -732,7 +731,6 @@ struct SettingsSheet: View {
             } message: {
                 Text(backupMessage)
             }
-        }
     }
 
     // MARK: - Role Picker Sheet
