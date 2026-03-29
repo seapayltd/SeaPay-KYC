@@ -684,7 +684,7 @@ struct VesselDocDetailSheet: View {
                                         }
                                         VStack(spacing: 4) {
                                             Image(uiImage: rendered).resizable().scaledToFit()
-                                                .frame(maxHeight: 300)
+                                                .frame(maxWidth: .infinity, maxHeight: 300)
                                                 .clipShape(RoundedRectangle(cornerRadius: 12))
                                             HStack(spacing: 4) {
                                                 Image(systemName: "doc.richtext").font(.system(size: 10))
@@ -693,7 +693,7 @@ struct VesselDocDetailSheet: View {
                                         }
                                     } else if !isPDF, let img = UIImage(data: data) {
                                         Image(uiImage: img).resizable().scaledToFit()
-                                            .frame(maxHeight: 300)
+                                            .frame(maxWidth: .infinity, maxHeight: 300)
                                             .clipShape(RoundedRectangle(cornerRadius: 12))
                                             .overlay(alignment: .bottomTrailing) {
                                                 Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 10))

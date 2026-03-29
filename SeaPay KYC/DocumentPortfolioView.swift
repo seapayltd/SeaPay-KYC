@@ -262,7 +262,7 @@ struct QuickAddSheet: View {
                     // Photo
                     if let data = capturedImage, let img = UIImage(data: data) {
                         ZStack(alignment: .bottomTrailing) {
-                            Image(uiImage: img).resizable().scaledToFit().frame(maxHeight: 160)
+                            Image(uiImage: img).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: 160)
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
                             Button { showCamera = true } label: {
                                 Image(systemName: "pencil.circle.fill").font(.title2).foregroundStyle(.white, .primary).padding(6)
@@ -430,7 +430,7 @@ struct DocumentDetailSheet: View {
                                     .background(Color.surfaceMuted.opacity(0.4))
                                     .clipShape(RoundedRectangle(cornerRadius: 10))
                                 } else if let img = UIImage(data: data) {
-                                    Image(uiImage: img).resizable().scaledToFit().frame(maxHeight: 200)
+                                    Image(uiImage: img).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: 200)
                                         .clipShape(RoundedRectangle(cornerRadius: 12))
                                         .overlay(alignment: .bottomTrailing) {
                                             Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 10))
