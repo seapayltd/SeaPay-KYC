@@ -105,6 +105,9 @@ struct SeaPay_KYCApp: App {
                     .zIndex(2)
                 }
 
+                // Global sync indicator
+                SyncOverlayView().zIndex(4)
+
                 // Biometric lock overlay
                 if isLocked && !showSplash {
                     BiometricLockView {

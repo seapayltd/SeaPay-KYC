@@ -360,8 +360,12 @@ struct FleetTabView: View {
 
     private func syncAllVessels() async {
         isSyncingAll = true; defer { isSyncingAll = false }
+        let total = workspaceVessels.count
+        guard total > 0 else { return }
+        let activityId = SyncActivityMonitor.shared.begin("Syncing \(total) vessel\(total == 1 ? "" : "s")", type: .sync)
         var synced = 0
-        for wv in workspaceVessels {
+        for (idx, wv) in workspaceVessels.enumerated() {
+            SyncActivityMonitor.shared.update(activityId, description: "Syncing \(idx + 1)/\(total) — \(wv.vesselName)")
             do {
                 // Pull raw JSON and decode vessels/checks separately for better error handling
                 guard let token = CollaborationService.shared.workspace?.token else { continue }
@@ -412,6 +416,7 @@ struct FleetTabView: View {
             }
         }
         vm.saveChecks(); vm.saveVessels()
+        SyncActivityMonitor.shared.complete(activityId, success: synced > 0)
         if synced > 0 { Haptics.light() }
     }
 

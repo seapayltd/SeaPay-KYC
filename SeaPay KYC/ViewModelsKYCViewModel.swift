@@ -272,9 +272,11 @@ class KYCViewModel: ObservableObject {
         guard CollaborationService.shared.isConnected else { return }
         guard let vessel = vessels.first(where: { $0.id == vesselId }) else { return }
         Task {
+            let activityId = SyncActivityMonitor.shared.begin("Syncing \(vessel.name)", type: .push)
             let checks = checksForVessel(vesselId)
-            _ = try? await CollaborationService.shared.pushVessel(vessel: vessel, checks: checks)
+            let ok = (try? await CollaborationService.shared.pushVessel(vessel: vessel, checks: checks)) != nil
             await FilesSyncService.shared.uploadMissingFiles(vesselId: vesselId, vm: self)
+            SyncActivityMonitor.shared.complete(activityId, success: ok)
         }
     }
 

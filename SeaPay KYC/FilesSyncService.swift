@@ -88,22 +88,24 @@ class FilesSyncService: ObservableObject {
 
         isSyncing = true
         var uploaded = 0
+        let activityId = SyncActivityMonitor.shared.begin("Uploading \(missing.count) file\(missing.count == 1 ? "" : "s")", type: .upload)
 
         for filename in missing {
-            // Try loading from imagesDir
             let filePath = vm.imagesDir.appendingPathComponent(filename)
             guard let fileData = try? Data(contentsOf: filePath) else {
                 fileSyncLogger.warning("Local file not found: \(filename)")
                 continue
             }
 
-            syncProgress = "Uploading \(uploaded + 1)/\(missing.count)..."
+            uploaded += 1
+            SyncActivityMonitor.shared.update(activityId, description: "Uploading \(uploaded)/\(missing.count)")
+            syncProgress = "Uploading \(uploaded)/\(missing.count)..."
 
             let success = await uploadFile(filename: filename, data: fileData, vesselId: vesselId, token: token)
-            if success { uploaded += 1 }
+            if !success { uploaded -= 1 }
         }
 
-        fileSyncLogger.info("Uploaded \(uploaded)/\(missing.count) files for vessel \(vesselId.prefix(8))")
+        SyncActivityMonitor.shared.complete(activityId, success: uploaded > 0)
         syncProgress = nil
         isSyncing = false
     }
@@ -130,23 +132,25 @@ class FilesSyncService: ObservableObject {
 
         isSyncing = true
         var downloaded = 0
+        let activityId = SyncActivityMonitor.shared.begin("Downloading \(missingFiles.count) file\(missingFiles.count == 1 ? "" : "s")", type: .download)
 
         for remote in missingFiles {
-            syncProgress = "Downloading \(downloaded + 1)/\(missingFiles.count)..."
+            downloaded += 1
+            SyncActivityMonitor.shared.update(activityId, description: "Downloading \(downloaded)/\(missingFiles.count)")
+            syncProgress = "Downloading \(downloaded)/\(missingFiles.count)..."
 
             if let data = await downloadFile(filename: remote.filename, token: token) {
                 let localPath = vm.imagesDir.appendingPathComponent(remote.filename)
                 do {
                     try data.write(to: localPath)
-                    downloaded += 1
                 } catch {
+                    downloaded -= 1
                     fileSyncLogger.error("Failed to write \(remote.filename): \(error.localizedDescription)")
                 }
-            }
+            } else { downloaded -= 1 }
         }
 
-        fileSyncLogger.info("Downloaded \(downloaded)/\(missingFiles.count) files for vessel \(vesselId.prefix(8))")
-        // Invalidate image cache for downloaded files
+        SyncActivityMonitor.shared.complete(activityId, success: downloaded > 0)
         for f in missingFiles { vm.invalidateImageCache(filename: f.filename) }
         syncProgress = nil
         isSyncing = false
