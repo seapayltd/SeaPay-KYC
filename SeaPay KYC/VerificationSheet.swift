@@ -867,9 +867,11 @@ struct PDFReportView: View {
             if let url = pdfURL { ActivityView(items: [url]) }
         }
         .task {
-            // Generate on a slight delay so the push animation completes first
-            try? await Task.sleep(nanoseconds: 100_000_000)
-            pdfURL = vm.generateReport(checkId: checkId)
+            // Wait for push animation to fully complete before generating PDF
+            try? await Task.sleep(nanoseconds: 450_000_000)
+            // Generate PDF — this is CPU-heavy, keep the spinner visible until done
+            let url = vm.generateReport(checkId: checkId)
+            withAnimation(.easeInOut(duration: 0.2)) { pdfURL = url }
         }
     }
 }
