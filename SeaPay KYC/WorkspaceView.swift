@@ -94,8 +94,7 @@ struct FleetTabView: View {
     // MARK: - Connected
 
     private var connectedView: some View {
-        NavigationStack {
-            ScrollView {
+        ScrollView {
                 VStack(spacing: 0) {
                     // Workspace header card
                     if let ws = workspaceDetail?.workspace {
@@ -263,7 +262,6 @@ struct FleetTabView: View {
             }
             .background(Color.surface.ignoresSafeArea())
             .refreshable { await fullRefresh() }
-        }
     }
 
     // MARK: - Vessel Row

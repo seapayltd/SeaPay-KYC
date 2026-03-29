@@ -176,6 +176,9 @@ struct HomeView: View {
             // Fleet
             NavigationStack {
                 FleetTabView(vm: vm)
+                    .navigationTitle("Fleet")
+                    .navigationBarTitleDisplayMode(.large)
+                    .toolbar { settingsToolbar }
             }
             .tabItem { Label("Fleet", systemImage: "person.3.sequence") }
             .tag(2)
@@ -408,62 +411,66 @@ struct HomeView: View {
     // MARK: - All Checks List
 
     private var allChecksList: some View {
-        VStack(spacing: 0) {
-            // Filter chips
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(Array(filterOptions.enumerated()), id: \.offset) { i, title in
-                        Button { withAnimation(.smooth(duration: 0.2)) { allFilter = i } } label: {
-                            FilterChip(title: title, isSelected: allFilter == i)
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                // Filter chips
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Array(filterOptions.enumerated()), id: \.offset) { i, title in
+                            Button { withAnimation(.smooth(duration: 0.2)) { allFilter = i } } label: {
+                                FilterChip(title: title, isSelected: allFilter == i)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
+                    .padding(.horizontal, 16).padding(.vertical, 10)
                 }
-                .padding(.horizontal, 20).padding(.vertical, 8)
-            }
 
-            if filteredChecks.isEmpty {
-                VStack(spacing: 14) {
-                    Spacer(minLength: 60)
-                    Image(systemName: "person.crop.rectangle.stack").font(.system(size: 44)).foregroundStyle(.quaternary)
-                    Text(vm.checks.isEmpty ? "No checks yet" : "No results").font(Typo.context).foregroundStyle(.secondary)
-                    Text(vm.checks.isEmpty ? "Tap + to add a person" : "Try a different filter").font(Typo.meta).foregroundStyle(.quaternary)
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity)
-            } else {
-                List {
-                    // Group by vessel
+                if filteredChecks.isEmpty {
+                    VStack(spacing: 14) {
+                        Spacer(minLength: 60)
+                        Image(systemName: "person.crop.rectangle.stack").font(.system(size: 44)).foregroundStyle(.quaternary)
+                        Text(vm.checks.isEmpty ? "No crew yet" : "No results").font(.system(size: 16, weight: .semibold)).foregroundStyle(.secondary)
+                        Text(vm.checks.isEmpty ? "Tap New to add a person" : "Try a different filter").font(Typo.meta).foregroundStyle(.quaternary)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity)
+                } else {
                     ForEach(groupedChecks, id: \.0) { vesselName, checks in
-                        Section(vesselName) {
-                            ForEach(checks) { check in
-                                Button { activeCheck = check } label: {
-                                    checkRow(check)
-                                }
-                                .contextMenu {
-                                    if !vm.vessels.isEmpty {
-                                        Menu {
-                                            ForEach(vm.vessels) { vessel in
-                                                Button(vessel.name) { vm.assignCheckToVessel(checkId: check.id, vesselId: vessel.id) }
-                                            }
-                                        } label: { Label("Assign to Vessel", systemImage: "ferry") }
-                                    }
-                                    if check.vesselId != nil {
-                                        Button { vm.unassignCheckFromVessel(checkId: check.id) } label: { Label("Remove from Vessel", systemImage: "minus.circle") }
-                                    }
-                                    Divider()
-                                    Button(role: .destructive) { vm.deleteCheckById(check.id) } label: { Label("Delete", systemImage: "trash") }
-                                }
+                        // Section header
+                        HStack {
+                            Text(vesselName.uppercased())
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.secondary).tracking(0.5)
+                            Spacer()
+                            Text("\(checks.count)").font(.system(size: 11)).foregroundStyle(.quaternary)
+                        }
+                        .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 6)
+
+                        ForEach(checks) { check in
+                            Button { activeCheck = check } label: {
+                                checkRow(check)
                             }
-                            .onDelete { offsets in
-                                let ids = offsets.map { checks[$0].id }
-                                for id in ids { vm.deleteCheckById(id) }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                if !vm.vessels.isEmpty {
+                                    Menu {
+                                        ForEach(vm.vessels) { vessel in
+                                            Button(vessel.name) { vm.assignCheckToVessel(checkId: check.id, vesselId: vessel.id) }
+                                        }
+                                    } label: { Label("Assign to Vessel", systemImage: "ferry") }
+                                }
+                                if check.vesselId != nil {
+                                    Button { vm.unassignCheckFromVessel(checkId: check.id) } label: { Label("Remove from Vessel", systemImage: "minus.circle") }
+                                }
+                                Divider()
+                                Button(role: .destructive) { vm.deleteCheckById(check.id) } label: { Label("Delete", systemImage: "trash") }
                             }
                         }
                     }
                 }
-                .listStyle(.plain)
             }
+            .padding(.bottom, 80)
         }
     }
 
@@ -513,22 +520,31 @@ struct HomeView: View {
     // MARK: - Components
 
     private func checkRow(_ check: KYCCheck) -> some View {
-        HStack(spacing: 12) {
-            avatarView(check, size: 36)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(check.displayName).font(Typo.body).lineLimit(1)
+        HStack(spacing: 14) {
+            avatarView(check, size: 40)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(check.displayName).font(.system(size: 14, weight: .medium)).lineLimit(1)
                 HStack(spacing: 6) {
                     if check.entityType != .seafarer {
-                        Text(check.entityType.rawValue).font(Typo.meta).foregroundStyle(.secondary)
+                        Text(check.entityType.rawValue).font(.system(size: 11)).foregroundStyle(.secondary)
                     } else if let rank = check.crewRank {
-                        Text(rank.rawValue).font(Typo.meta).foregroundStyle(.secondary)
+                        Text(rank.rawValue).font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                    if let vessel = check.vesselId.flatMap({ vid in vm.vessels.first(where: { $0.id == vid }) }) {
+                        Text("·").foregroundStyle(.quaternary)
+                        Text(vessel.name).font(.system(size: 11)).foregroundStyle(.tertiary)
                     }
                 }
             }
             Spacer()
             StatusBadge(status: check.status)
+            Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.quaternary)
         }
-        .padding(.vertical, 3)
+        .padding(.horizontal, 16).padding(.vertical, 12)
+        .background(Color.surfaceRaised)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .shadow(color: .black.opacity(0.04), radius: 4, y: 2)
+        .padding(.horizontal, 16).padding(.vertical, 2)
     }
 
     private func tabLabel(_ title: String, index: Int) -> some View {
