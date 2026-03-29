@@ -186,7 +186,7 @@ struct SeaPay_KYCApp: App {
         #if targetEnvironment(macCatalyst)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("New Vessel") { /* handled by HomeView keyboard shortcut */ }
+                Button("New Vessel") { /* handled by DashboardView keyboard shortcut */ }
                     .keyboardShortcut("n", modifiers: .command)
             }
             CommandGroup(after: .sidebar) {
