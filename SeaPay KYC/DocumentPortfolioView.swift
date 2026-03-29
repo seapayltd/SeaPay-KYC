@@ -533,49 +533,85 @@ struct DocumentDetailSheet: View {
 
 // MARK: - Image Preview
 
-struct ImagePreviewView: View {
+// UIKit-backed image preview — guarantees centering regardless of SwiftUI parent layout
+struct ImagePreviewView: UIViewControllerRepresentable {
     let image: UIImage
     let filename: String
     let imagesDir: URL
-    @Environment(\.dismiss) private var dismiss
-    @State private var showShare = false
 
-    var body: some View {
-        ZStack {
-            Color.black
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFit()
-                .padding(.horizontal, 8)
-        }
-        .ignoresSafeArea()
-        .overlay(alignment: .topLeading) {
-                Button { dismiss() } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 32, height: 32)
-                        .background(Color.white.opacity(0.18))
-                        .clipShape(Circle())
-                }
-                .padding(.leading, 16).padding(.top, 56)
-            }
-            .overlay(alignment: .topTrailing) {
-                Button { showShare = true } label: {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 32, height: 32)
-                        .background(Color.white.opacity(0.18))
-                        .clipShape(Circle())
-                }
-                .padding(.trailing, 16).padding(.top, 56)
-            }
-            .statusBarHidden()
-            .sheet(isPresented: $showShare) {
-                if let data = image.jpegData(compressionQuality: 0.95) {
-                    ActivityView(items: [data])
-                }
-            }
+    func makeUIViewController(context: Context) -> ImagePreviewController {
+        ImagePreviewController(image: image)
+    }
+    func updateUIViewController(_ vc: ImagePreviewController, context: Context) {}
+}
+
+class ImagePreviewController: UIViewController {
+    private let image: UIImage
+    private let imageView = UIImageView()
+
+    init(image: UIImage) {
+        self.image = image
+        super.init(nibName: nil, bundle: nil)
+    }
+    required init?(coder: NSCoder) { nil }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+
+        // Image — centered via autolayout
+        imageView.image = image
+        imageView.contentMode = .scaleAspectFit
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(imageView)
+        NSLayoutConstraint.activate([
+            imageView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8),
+            imageView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
+            imageView.topAnchor.constraint(equalTo: view.topAnchor),
+            imageView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+
+        // Close button
+        let close = UIButton(type: .system)
+        close.setImage(UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)), for: .normal)
+        close.tintColor = .white
+        close.backgroundColor = UIColor.white.withAlphaComponent(0.18)
+        close.layer.cornerRadius = 16
+        close.translatesAutoresizingMaskIntoConstraints = false
+        close.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
+        view.addSubview(close)
+        NSLayoutConstraint.activate([
+            close.widthAnchor.constraint(equalToConstant: 32),
+            close.heightAnchor.constraint(equalToConstant: 32),
+            close.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            close.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+        ])
+
+        // Share button
+        let share = UIButton(type: .system)
+        share.setImage(UIImage(systemName: "square.and.arrow.up", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .bold)), for: .normal)
+        share.tintColor = .white
+        share.backgroundColor = UIColor.white.withAlphaComponent(0.18)
+        share.layer.cornerRadius = 16
+        share.translatesAutoresizingMaskIntoConstraints = false
+        share.addTarget(self, action: #selector(shareTapped), for: .touchUpInside)
+        view.addSubview(share)
+        NSLayoutConstraint.activate([
+            share.widthAnchor.constraint(equalToConstant: 32),
+            share.heightAnchor.constraint(equalToConstant: 32),
+            share.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            share.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+        ])
+    }
+
+    override var prefersStatusBarHidden: Bool { true }
+
+    @objc private func closeTapped() { dismiss(animated: true) }
+
+    @objc private func shareTapped() {
+        guard let data = image.jpegData(compressionQuality: 0.95) else { return }
+        let ac = UIActivityViewController(activityItems: [data], applicationActivities: nil)
+        ac.popoverPresentationController?.sourceView = view
+        present(ac, animated: true)
     }
 }
