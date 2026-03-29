@@ -171,10 +171,25 @@ struct CollaboratorSetupView: View {
         )
         profile.save()
 
-        // Join workspace
+        // Join workspace + auto-pull data
         do {
             _ = try await CollaborationService.shared.joinWorkspace(code: code)
             UserDefaults.standard.set(true, forKey: "isCollaborator")
+
+            // Pull all workspace vessels into local data
+            let vessels = try await CollaborationService.shared.listWorkspaceVessels()
+            for wv in vessels {
+                if let snapshot = try? await CollaborationService.shared.pullVessel(vesselId: wv.vesselId) {
+                    if let vs = snapshot.vessels {
+                        for v in vs { if !vm.vessels.contains(where: { $0.id == v.id }) { vm.vessels.append(v) } }
+                    }
+                    if let cs = snapshot.checks {
+                        for c in cs { if !vm.checks.contains(where: { $0.id == c.id }) { vm.checks.append(c) } }
+                    }
+                }
+            }
+            vm.saveChecks(); vm.saveVessels()
+
             appState.didConfigure()
             Haptics.success()
             dismiss()

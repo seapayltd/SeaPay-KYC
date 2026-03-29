@@ -119,6 +119,7 @@ struct MergeDiff {
     let newChecks: [KYCCheck]
     let updatedChecks: [CheckUpdate]
     let removedCheckIds: [String]
+    let remoteChecks: [KYCCheck]  // Full remote checks for replacement on merge
 
     var isEmpty: Bool { vesselChanges.isEmpty && newChecks.isEmpty && updatedChecks.isEmpty && removedCheckIds.isEmpty }
     var totalChanges: Int { vesselChanges.count + newChecks.count + updatedChecks.count + removedCheckIds.count }
@@ -184,6 +185,11 @@ enum MergeEngine {
             if lc.amlStatus != rc.amlStatus { changes.append("AML: \(lc.amlStatus ?? "—") → \(rc.amlStatus ?? "—")") }
             if lc.expiryDate != rc.expiryDate { changes.append("Expiry: \(lc.expiryDate ?? "—") → \(rc.expiryDate ?? "—")") }
             if lc.reviewDecision != rc.reviewDecision { changes.append("Review: \(lc.reviewDecision?.rawValue ?? "—") → \(rc.reviewDecision?.rawValue ?? "—")") }
+            // Document changes
+            let localDocCount = (lc.documents ?? []).filter { !$0.isArchived }.count
+            let remoteDocCount = (rc.documents ?? []).filter { !$0.isArchived }.count
+            if localDocCount != remoteDocCount { changes.append("Documents: \(localDocCount) → \(remoteDocCount)") }
+            if lc.crewRank != rc.crewRank { changes.append("Rank: \(lc.crewRank?.rawValue ?? "—") → \(rc.crewRank?.rawValue ?? "—")") }
             if !changes.isEmpty {
                 updatedChecks.append(CheckUpdate(id: lc.id, checkName: rc.customerName, changes: changes))
             }
@@ -199,7 +205,7 @@ enum MergeEngine {
             }
         }
 
-        return MergeDiff(vesselChanges: vesselChanges, newChecks: newChecks, updatedChecks: updatedChecks, removedCheckIds: removedCheckIds)
+        return MergeDiff(vesselChanges: vesselChanges, newChecks: newChecks, updatedChecks: updatedChecks, removedCheckIds: removedCheckIds, remoteChecks: remoteChecks ?? [])
     }
 
     /// Apply accepted merge changes to the local data.
@@ -209,7 +215,7 @@ enum MergeEngine {
             vm.vessels[i] = rv
         }
 
-        // Add new checks
+        // Add new checks (including all their documents)
         if acceptNewChecks {
             for check in diff.newChecks {
                 if !vm.checks.contains(where: { $0.id == check.id }) {
@@ -218,8 +224,16 @@ enum MergeEngine {
             }
         }
 
-        // Updates are applied via the newChecks merge — remote version replaces local
-        // (The diff shows what changed; acceptance means keeping the remote version)
+        // Replace updated checks with remote version (preserves documents, rank, etc.)
+        if acceptUpdates {
+            let remoteMap = Dictionary(uniqueKeysWithValues: diff.remoteChecks.map { ($0.id, $0) })
+            for update in diff.updatedChecks {
+                if let remoteCheck = remoteMap[update.id],
+                   let localIdx = vm.checks.firstIndex(where: { $0.id == update.id }) {
+                    vm.checks[localIdx] = remoteCheck
+                }
+            }
+        }
 
         vm.saveChecks()
         vm.saveVessels()

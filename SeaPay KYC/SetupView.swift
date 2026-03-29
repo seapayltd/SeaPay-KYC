@@ -402,6 +402,26 @@ struct SettingsSheet: View {
                     }
                     .padding(.top, 24).padding(.bottom, 20)
 
+                    // MARK: Upgrade (collaborators only)
+                    if UserDefaults.standard.bool(forKey: "isCollaborator") && AppConfiguration.apiKey.isEmpty {
+                        settingsSection("") {
+                            NavigationLink {
+                                SequentialSetupView(vm: vm, appState: appState, ownerAccessCode: .constant(nil), startAtStep: 1)
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "key").font(.system(size: 15)).foregroundStyle(Color.clear_).frame(width: 24)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Upgrade to Full Agent").font(Typo.body).fontWeight(.medium)
+                                        Text("Add your API key to unlock verification").font(Typo.meta).foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.quaternary)
+                                }
+                                .padding(.horizontal, 16).padding(.vertical, 14)
+                            }
+                        }
+                    }
+
                     // MARK: Identity
                     settingsSection("Identity") {
                         settingsRow(icon: "person", label: "First Name") {

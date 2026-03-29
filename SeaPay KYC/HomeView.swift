@@ -22,8 +22,9 @@ struct HomeView: View {
     @State private var showCSVExport = false
     @State private var csvURL: URL?
     @State private var searchText = ""
-    @State private var tab = UserDefaults.standard.bool(forKey: "isCollaborator") ? 2 : 0  // Collaborators start on Fleet
-    @State private var allFilter = 0 // 0=All, 1=Flagged, 2=Expiring, 3=Pending
+    @State private var tab = UserDefaults.standard.bool(forKey: "isCollaborator") ? 2 : 0
+    @State private var allFilter = 0
+    private var isCollaborator: Bool { UserDefaults.standard.bool(forKey: "isCollaborator") && AppConfiguration.apiKey.isEmpty }
 
     // iPad sidebar
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -178,14 +179,14 @@ struct HomeView: View {
                 .frame(maxHeight: .infinity)
                 .background(Color.surface.ignoresSafeArea())
 
-                // Floating add button
-                addButton
+                // Floating add button (agents only)
+                if !isCollaborator { addButton }
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     HStack(spacing: 24) {
-                        tabLabel("Vessels", index: 0)
+                        if !isCollaborator { tabLabel("Vessels", index: 0) }
                         tabLabel("People", index: 1)
                         tabLabel("Fleet", index: 2)
                     }
@@ -197,6 +198,7 @@ struct HomeView: View {
                     .accessibilityLabel("Settings")
                 }
                 ToolbarItem(placement: .primaryAction) {
+                    if !isCollaborator {
                     Menu {
                         Button { showBatchInvite = true } label: { Label("Batch Invite", systemImage: "person.2.badge.plus") }
                         Button { showBatchImport = true } label: { Label("Import Crew CSV", systemImage: "square.and.arrow.down") }
@@ -208,6 +210,7 @@ struct HomeView: View {
                         Image(systemName: "ellipsis").font(.system(size: 14)).foregroundStyle(.secondary)
                     }
                     .accessibilityLabel("More actions")
+                    } // end if !isCollaborator
                 }
             }
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search crew or vessels")

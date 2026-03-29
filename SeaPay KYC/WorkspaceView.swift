@@ -27,6 +27,8 @@ struct FleetTabView: View {
     @State private var mergeRemoteChecks: [KYCCheck]?
     @State private var downloadURL: IdentifiableURL?
     @State private var showActivity = false
+    @State private var isSyncingAll = false
+    private var isCollaborator: Bool { UserDefaults.standard.bool(forKey: "isCollaborator") }
 
     var body: some View {
         Group {
@@ -35,7 +37,7 @@ struct FleetTabView: View {
         .task { await checkConnection() }
         .sheet(isPresented: $showCreate) { CreateWorkspaceSheet(vm: vm, onCreated: { await refresh() }) }
         .sheet(isPresented: $showJoin) { JoinWorkspaceSheet(vm: vm, onJoined: { await refresh() }) }
-        .sheet(isPresented: $showAddVessel) { AddVesselToWorkspaceSheet(vm: vm, onAdded: { await refresh() }) }
+        .sheet(isPresented: $showAddVessel) { AddVesselToWorkspaceSheet(vm: vm, existingVesselIds: Set(workspaceVessels.map(\.vesselId)), onAdded: { await refresh() }) }
         .sheet(item: $downloadURL) { url in ActivityView(items: [url.url]) }
     }
 
@@ -100,23 +102,43 @@ struct FleetTabView: View {
                     }.padding(.bottom, 12)
                 }
 
-                // Shared Vessels
-                HStack {
+                // Sync All + Add
+                HStack(spacing: 12) {
                     SectionHeader("Shared Vessels")
                     Spacer()
-                    Button { showAddVessel = true } label: {
-                        Image(systemName: "plus.circle").font(.system(size: 16)).foregroundStyle(.primary)
+                    if isSyncingAll {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Button { Task { await syncAllVessels() } } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.triangle.2.circlepath").font(.system(size: 12))
+                                Text("Sync").font(Typo.meta)
+                            }.foregroundStyle(.primary.opacity(0.6))
+                        }
+                    }
+                    if !isCollaborator {
+                        Button { showAddVessel = true } label: {
+                            Image(systemName: "plus.circle").font(.system(size: 16)).foregroundStyle(.primary)
+                        }
                     }
                 }.padding(.horizontal, 20).padding(.top, 8)
 
                 if workspaceVessels.isEmpty {
                     VStack(spacing: 12) {
                         Text("No vessels shared yet").font(Typo.body).foregroundStyle(.secondary)
-                        Text("Tap + to add a vessel to this workspace.").font(Typo.meta).foregroundStyle(.quaternary)
+                        Text(isCollaborator ? "Waiting for the agent to share vessels." : "Tap + to add a vessel to this workspace.")
+                            .font(Typo.meta).foregroundStyle(.quaternary)
                     }.padding(.vertical, 24)
                 } else {
                     ForEach(workspaceVessels) { wv in
-                        vesselCard(wv)
+                        let localVessel = vm.vessels.first(where: { $0.id == wv.vesselId })
+                        if let lv = localVessel {
+                            NavigationLink { VesselDetailView(vm: vm, vessel: lv) } label: {
+                                vesselCard(wv)
+                            }.buttonStyle(.plain)
+                        } else {
+                            vesselCard(wv)
+                        }
                     }
                 }
 
@@ -194,20 +216,7 @@ struct FleetTabView: View {
                     if isSyncing {
                         ProgressView().controlSize(.small)
                     } else {
-                        HStack(spacing: 10) {
-                            // Push
-                            Button { Task { await pushVessel(wv) } } label: {
-                                Image(systemName: "arrow.up.circle").font(.system(size: 18)).foregroundStyle(.primary.opacity(0.6))
-                            }.accessibilityLabel("Push \(wv.vesselName)")
-                            // Pull (with merge review)
-                            Button { Task { await pullWithReview(wv) } } label: {
-                                Image(systemName: "arrow.down.circle").font(.system(size: 18)).foregroundStyle(.primary.opacity(0.6))
-                            }.accessibilityLabel("Pull \(wv.vesselName)")
-                            // Download package
-                            Button { downloadPackage(wv) } label: {
-                                Image(systemName: "square.and.arrow.down").font(.system(size: 16)).foregroundStyle(.primary.opacity(0.4))
-                            }.accessibilityLabel("Download \(wv.vesselName)")
-                        }
+                        Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.quaternary)
                     }
                 }
 
@@ -226,10 +235,18 @@ struct FleetTabView: View {
 
             Divider().padding(.leading, 78)
         }
-        .swipeActions(edge: .trailing) {
-            Button(role: .destructive) {
-                Task { try? await CollaborationService.shared.removeVesselFromWorkspace(vesselId: wv.vesselId); await refresh() }
-            } label: { Label("Remove", systemImage: "minus.circle") }
+        .contextMenu {
+            if !isCollaborator {
+                Button { Task { await pushVessel(wv) } } label: { Label("Push Changes", systemImage: "arrow.up.circle") }
+            }
+            Button { Task { await pullWithReview(wv) } } label: { Label("Pull Latest", systemImage: "arrow.down.circle") }
+            Button { downloadPackage(wv) } label: { Label("Download Package", systemImage: "square.and.arrow.down") }
+            if !isCollaborator {
+                Divider()
+                Button(role: .destructive) {
+                    Task { try? await CollaborationService.shared.removeVesselFromWorkspace(vesselId: wv.vesselId); await refresh() }
+                } label: { Label("Remove from Workspace", systemImage: "minus.circle") }
+            }
         }
     }
 
@@ -263,7 +280,39 @@ struct FleetTabView: View {
             workspaceVessels = try await CollaborationService.shared.listWorkspaceVessels()
             activity = try await CollaborationService.shared.getActivity()
             error = nil
+            // Auto-sync vessel data on refresh
+            await syncAllVessels()
         } catch { self.error = error.localizedDescription }
+    }
+
+    private func syncAllVessels() async {
+        isSyncingAll = true; defer { isSyncingAll = false }
+        for wv in workspaceVessels {
+            do {
+                guard let snapshot = try await CollaborationService.shared.pullVessel(vesselId: wv.vesselId) else { continue }
+                // Auto-merge: add new vessels/checks, update existing
+                if let vessels = snapshot.vessels {
+                    for v in vessels {
+                        if let i = vm.vessels.firstIndex(where: { $0.id == v.id }) {
+                            vm.vessels[i] = v  // Update existing
+                        } else {
+                            vm.vessels.append(v)  // Add new
+                        }
+                    }
+                }
+                if let checks = snapshot.checks {
+                    for check in checks {
+                        if let i = vm.checks.firstIndex(where: { $0.id == check.id }) {
+                            vm.checks[i] = check  // Replace with remote (includes documents)
+                        } else {
+                            vm.checks.append(check)  // Add new
+                        }
+                    }
+                }
+            } catch { /* individual vessel sync failure — continue with others */ }
+        }
+        vm.saveChecks()
+        vm.saveVessels()
     }
 
     private func pushVessel(_ wv: WorkspaceVessel) async {
@@ -312,6 +361,7 @@ struct FleetTabView: View {
 
 struct AddVesselToWorkspaceSheet: View {
     @ObservedObject var vm: KYCViewModel
+    var existingVesselIds: Set<String> = []
     var onAdded: () async -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var selectedVessel: Vessel?
@@ -325,7 +375,7 @@ struct AddVesselToWorkspaceSheet: View {
                 List {
                     // Vessel picker
                     Section("Select Vessel") {
-                        ForEach(vm.vessels) { vessel in
+                        ForEach(vm.vessels.filter { !existingVesselIds.contains($0.id) }) { vessel in
                             Button {
                                 selectedVessel = vessel
                             } label: {
