@@ -635,6 +635,9 @@ struct VesselDocDetailSheet: View {
     @State private var showDeleteConfirm = false
     @State private var showRenew = false
     @State private var showHistory = false
+    @State private var previewImage: UIImage?
+    @State private var previewFilename: String?
+    @State private var shareURL: IdentifiableURL?
 
     private var allVersions: [CrewDocument] {
         let vessel = vm.vessels.first(where: { $0.id == vesselId })
@@ -655,32 +658,53 @@ struct VesselDocDetailSheet: View {
                     Text(document.statusLabel)
                         .font(Typo.meta).fontWeight(.semibold).foregroundStyle(document.statusColor)
 
-                    // Document images / PDFs
+                    // Document images / PDFs — tappable for preview + share
                     if !document.imagePaths.isEmpty {
                         ForEach(document.imagePaths, id: \.self) { path in
                             if let data = vm.loadDocumentImage(filename: path) {
                                 let isPDF = path.lowercased().hasSuffix(".pdf") || data.prefix(5) == Data([0x25, 0x50, 0x44, 0x46, 0x2D])
-                                if !isPDF, let img = UIImage(data: data) {
-                                    // It's an image (JPEG/PNG)
-                                    Image(uiImage: img).resizable().scaledToFit()
-                                        .frame(maxHeight: 300)
-                                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.06), lineWidth: 1))
-                                } else if isPDF, let pdfDoc = PDFDocument(data: data), let page = pdfDoc.page(at: 0) {
-                                    // It's a PDF — render first page
-                                    let bounds = page.bounds(for: .mediaBox)
-                                    let renderer = UIGraphicsImageRenderer(size: CGSize(width: bounds.width * 2, height: bounds.height * 2))
-                                    let rendered = renderer.image { ctx in
-                                        UIColor.white.setFill()
-                                        ctx.fill(CGRect(origin: .zero, size: CGSize(width: bounds.width * 2, height: bounds.height * 2)))
-                                        ctx.cgContext.translateBy(x: 0, y: bounds.height * 2)
-                                        ctx.cgContext.scaleBy(x: 2, y: -2)
-                                        page.draw(with: .mediaBox, to: ctx.cgContext)
+                                Button {
+                                    if isPDF {
+                                        let url = vm.imagesDir.appendingPathComponent(path)
+                                        if FileManager.default.fileExists(atPath: url.path) { shareURL = IdentifiableURL(url: url) }
+                                    } else if let img = UIImage(data: data) {
+                                        previewImage = img; previewFilename = path
                                     }
-                                    Image(uiImage: rendered).resizable().scaledToFit()
-                                        .frame(maxHeight: 400)
-                                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.06), lineWidth: 1))
+                                } label: {
+                                    if isPDF, let pdfDoc = PDFDocument(data: data), let page = pdfDoc.page(at: 0) {
+                                        let bounds = page.bounds(for: .mediaBox)
+                                        let renderer = UIGraphicsImageRenderer(size: CGSize(width: bounds.width * 2, height: bounds.height * 2))
+                                        let rendered = renderer.image { ctx in
+                                            UIColor.white.setFill()
+                                            ctx.fill(CGRect(origin: .zero, size: CGSize(width: bounds.width * 2, height: bounds.height * 2)))
+                                            ctx.cgContext.translateBy(x: 0, y: bounds.height * 2)
+                                            ctx.cgContext.scaleBy(x: 2, y: -2)
+                                            page.draw(with: .mediaBox, to: ctx.cgContext)
+                                        }
+                                        VStack(spacing: 4) {
+                                            Image(uiImage: rendered).resizable().scaledToFit()
+                                                .frame(maxHeight: 300)
+                                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                                            HStack(spacing: 4) {
+                                                Image(systemName: "doc.richtext").font(.system(size: 10))
+                                                Text("PDF \u{2022} Tap to open").font(.system(size: 10))
+                                            }.foregroundStyle(.secondary)
+                                        }
+                                    } else if !isPDF, let img = UIImage(data: data) {
+                                        Image(uiImage: img).resizable().scaledToFit()
+                                            .frame(maxHeight: 300)
+                                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                                            .overlay(alignment: .bottomTrailing) {
+                                                Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 10))
+                                                    .padding(6).background(.ultraThinMaterial).clipShape(Circle()).padding(8)
+                                            }
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            } else {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "icloud.and.arrow.down").font(.system(size: 14)).foregroundStyle(.secondary)
+                                    Text(path).font(Typo.meta).foregroundStyle(.secondary).lineLimit(1)
                                 }
                             }
                         }
@@ -778,6 +802,13 @@ struct VesselDocDetailSheet: View {
                     dismiss()
                 }
             } message: { Text("This will remove \(document.displayName) from the vessel.") }
+            .fullScreenCover(item: Binding(
+                get: { previewImage.map { ImagePreviewItem(image: $0, filename: previewFilename ?? "") } },
+                set: { if $0 == nil { previewImage = nil } }
+            )) { item in
+                ImagePreviewView(image: item.image, filename: item.filename, imagesDir: vm.imagesDir)
+            }
+            .sheet(item: $shareURL) { url in ActivityView(items: [url.url]) }
         }
     }
 

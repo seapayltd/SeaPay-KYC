@@ -21,6 +21,8 @@ struct VerificationSheet: View {
     private var hasResults: Bool { c.rawIDResponse != nil || c.completedAt != nil }
     private var isWaitingForInvite: Bool { c.sessionId != nil && c.completedAt == nil && c.rawIDResponse == nil }
     private var isCollaborator: Bool { UserDefaults.standard.bool(forKey: "isCollaborator") && AppConfiguration.apiKey.isEmpty }
+    @State private var previewImage: UIImage?
+    @State private var previewFilename: String?
     private var isExpiredSession: Bool { c.sessionId != nil && c.status == .incomplete && c.completedAt != nil }
 
     // Config
@@ -88,6 +90,12 @@ struct VerificationSheet: View {
                     onConfirm: { vm.submitReview(checkId: c.id, decision: decision, reason: reviewReason); reviewReason = "" }
                 )
                 .presentationDetents([.medium])
+            }
+            .fullScreenCover(item: Binding(
+                get: { previewImage.map { ImagePreviewItem(image: $0, filename: previewFilename ?? "") } },
+                set: { if $0 == nil { previewImage = nil } }
+            )) { item in
+                ImagePreviewView(image: item.image, filename: item.filename, imagesDir: vm.imagesDir)
             }
         }
     }
@@ -500,7 +508,15 @@ struct VerificationSheet: View {
                         HStack(spacing: 6) {
                             ForEach(paths, id: \.self) { fn in
                                 if let d = vm.loadDocumentImage(filename: fn), let img = UIImage(data: d) {
-                                    Image(uiImage: img).resizable().scaledToFill().frame(width: 80, height: 54).clipShape(RoundedRectangle(cornerRadius: 8))
+                                    Button {
+                                        previewImage = img; previewFilename = fn
+                                    } label: {
+                                        Image(uiImage: img).resizable().scaledToFill().frame(width: 80, height: 54).clipShape(RoundedRectangle(cornerRadius: 8))
+                                            .overlay(alignment: .bottomTrailing) {
+                                                Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 7))
+                                                    .padding(3).background(.ultraThinMaterial).clipShape(Circle()).padding(3)
+                                            }
+                                    }.buttonStyle(.plain)
                                 }
                             }
                         }
