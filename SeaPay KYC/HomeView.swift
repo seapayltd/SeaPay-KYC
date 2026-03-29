@@ -24,6 +24,7 @@ struct HomeView: View {
     @State private var searchText = ""
     @State private var tab = UserDefaults.standard.bool(forKey: "isCollaborator") ? 2 : 0
     @State private var allFilter = 0
+    @State private var previousTab = 0
     private var isCollaborator: Bool { UserDefaults.standard.bool(forKey: "isCollaborator") && AppConfiguration.apiKey.isEmpty }
 
     // iPad sidebar
@@ -134,94 +135,74 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - iPhone Stack
+    // MARK: - iPhone Tab Bar
 
     private var iPhoneLayout: some View {
-        NavigationStack {
-            ZStack(alignment: .bottomTrailing) {
-                VStack(spacing: 0) {
-                    // Offline + queue
-                    if !vm.isOnline {
-                        HStack(spacing: 8) {
-                            Image(systemName: "wifi.slash").font(.system(size: 11))
-                            Text("Offline").font(Typo.meta)
-                            if !vm.offlineQueue.isEmpty {
-                                Text("\u{2022} \(vm.offlineQueue.count) queued").font(Typo.meta).opacity(0.8)
-                            }
-                        }
-                        .foregroundStyle(.white).frame(maxWidth: .infinity)
-                        .padding(.vertical, 6).background(Color.secondary.opacity(0.7))
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                    } else if vm.offlineQueue.isProcessing {
-                        HStack(spacing: 8) {
-                            ProgressView().controlSize(.mini).tint(.white)
-                            Text("Syncing \(vm.offlineQueue.count) queued actions...").font(Typo.meta)
-                        }
-                        .foregroundStyle(.white).frame(maxWidth: .infinity)
-                        .padding(.vertical, 6).background(Color.clear_.opacity(0.7))
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                    }
-
-                    // Expiry alert
-                    expiryBanner
-
-                    // Content
-                    if tab == 0 {
+        TabView(selection: $tab) {
+            // Vessels
+            if !isCollaborator {
+                NavigationStack {
+                    VStack(spacing: 0) {
+                        offlineBanner
+                        expiryBanner
                         vesselsList.refreshable { await vm.refreshPendingSessions() }
-                    } else if tab == 1 {
-                        allChecksList.refreshable { await vm.refreshPendingSessions() }
-                    } else {
-                        FleetTabView(vm: vm)
                     }
-
-                    Spacer(minLength: 0)
+                    .background(Color.surface.ignoresSafeArea())
+                    .navigationTitle("Vessels")
+                    .navigationBarTitleDisplayMode(.large)
+                    .toolbar { settingsToolbar; moreActionsToolbar }
+                    .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search vessels")
                 }
-                .frame(maxHeight: .infinity)
+                .tabItem { Label("Vessels", systemImage: "ferry") }
+                .tag(0)
+            }
+
+            // People
+            NavigationStack {
+                VStack(spacing: 0) {
+                    offlineBanner
+                    allChecksList.refreshable { await vm.refreshPendingSessions() }
+                }
                 .background(Color.surface.ignoresSafeArea())
+                .navigationTitle("People")
+                .navigationBarTitleDisplayMode(.large)
+                .toolbar { settingsToolbar }
+                .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search crew")
+            }
+            .tabItem { Label("People", systemImage: "person.3") }
+            .tag(1)
 
-                // Floating add button (agents only)
-                if !isCollaborator { addButton }
+            // Add (agents only)
+            if !isCollaborator {
+                Text("") // Placeholder — intercepted by onChange
+                    .tabItem { Label("Add", systemImage: "plus.circle.fill") }
+                    .tag(99)
             }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    HStack(spacing: 24) {
-                        if !isCollaborator { tabLabel("Vessels", index: 0) }
-                        tabLabel("People", index: 1)
-                        tabLabel("Fleet", index: 2)
-                    }
-                }
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button { showSettings = true } label: {
-                        Image(systemName: "gearshape").font(.system(size: 14)).foregroundStyle(.secondary)
-                    }
-                    .accessibilityLabel("Settings")
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    if !isCollaborator {
-                    Menu {
-                        Button { showBatchInvite = true } label: { Label("Batch Invite", systemImage: "person.2.badge.plus") }
-                        Button { showBatchImport = true } label: { Label("Import Crew CSV", systemImage: "square.and.arrow.down") }
-                        if !vm.checks.isEmpty {
-                            Button { csvURL = vm.generateCSV(vesselId: nil); if csvURL != nil { showCSVExport = true } } label: { Label("Export CSV", systemImage: "tablecells") }
-                            Button { csvURL = vm.generateXLSX(vesselId: nil); if csvURL != nil { showCSVExport = true } } label: { Label("Export XLSX", systemImage: "doc.richtext") }
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis").font(.system(size: 14)).foregroundStyle(.secondary)
-                    }
-                    .accessibilityLabel("More actions")
-                    } // end if !isCollaborator
-                }
+
+            // Fleet
+            NavigationStack {
+                FleetTabView(vm: vm)
             }
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search crew or vessels")
-            .sheet(item: $activeCheck) { VerificationSheet(vm: vm, check: $0) }
-            .sheet(item: $inviteCheck) { InviteSheet(vm: vm, check: $0) }
-            .sheet(isPresented: $showSettings) { SettingsSheet(vm: vm, appState: appState) }
-            .sheet(isPresented: $showAddVessel) { VesselSheet(vm: vm) }
-            .sheet(isPresented: $showBatchInvite) { BatchInviteSheet(vm: vm) }
-            .sheet(isPresented: $showBatchImport) { BatchImportSheet(vm: vm) }
-            .sheet(isPresented: $showCSVExport) { if let url = csvURL { ActivityView(items: [url]) } }
-            .sheet(item: $selectedVesselForAdd) { vessel in
+            .tabItem { Label("Fleet", systemImage: "person.3.sequence") }
+            .tag(2)
+        }
+        .onChange(of: tab) { _, newTab in
+            if newTab == 99 {
+                // "Add" tab tapped — show add menu, revert to previous tab
+                tab = previousTab
+                showAddVessel = true
+            } else {
+                previousTab = newTab
+            }
+        }
+        .sheet(item: $activeCheck) { VerificationSheet(vm: vm, check: $0) }
+        .sheet(item: $inviteCheck) { InviteSheet(vm: vm, check: $0) }
+        .sheet(isPresented: $showSettings) { NavigationStack { SettingsSheet(vm: vm, appState: appState) } }
+        .sheet(isPresented: $showAddVessel) { VesselSheet(vm: vm) }
+        .sheet(isPresented: $showBatchInvite) { BatchInviteSheet(vm: vm) }
+        .sheet(isPresented: $showBatchImport) { BatchImportSheet(vm: vm) }
+        .sheet(isPresented: $showCSVExport) { if let url = csvURL { ActivityView(items: [url]) } }
+        .sheet(item: $selectedVesselForAdd) { vessel in
                 AddCrewSheet(vm: vm, vesselId: vessel.id) { check, method in
                     selectedVesselForAdd = nil
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
@@ -234,6 +215,58 @@ struct HomeView: View {
             .onOpenSettings { showSettings = true }
             .onExport { csvURL = vm.generateCSV(vesselId: nil); if csvURL != nil { showCSVExport = true } }
             .onRefresh { Task { await vm.refreshPendingSessions() } }
+    }
+
+    // MARK: - Toolbar Items
+
+    @ToolbarContentBuilder
+    private var settingsToolbar: some ToolbarContent {
+        ToolbarItem(placement: .navigationBarLeading) {
+            Button { showSettings = true } label: {
+                Image(systemName: "gearshape").font(.system(size: 14)).foregroundStyle(.secondary)
+            }
+            .accessibilityLabel("Settings")
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var moreActionsToolbar: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Menu {
+                Button { showBatchInvite = true } label: { Label("Batch Invite", systemImage: "person.2.badge.plus") }
+                Button { showBatchImport = true } label: { Label("Import Crew CSV", systemImage: "square.and.arrow.down") }
+                if !vm.checks.isEmpty {
+                    Button { csvURL = vm.generateCSV(vesselId: nil); if csvURL != nil { showCSVExport = true } } label: { Label("Export CSV", systemImage: "tablecells") }
+                    Button { csvURL = vm.generateXLSX(vesselId: nil); if csvURL != nil { showCSVExport = true } } label: { Label("Export XLSX", systemImage: "doc.richtext") }
+                }
+            } label: {
+                Image(systemName: "ellipsis").font(.system(size: 14)).foregroundStyle(.secondary)
+            }
+            .accessibilityLabel("More actions")
+        }
+    }
+
+    // MARK: - Offline Banner
+
+    @ViewBuilder
+    private var offlineBanner: some View {
+        if !vm.isOnline {
+            HStack(spacing: 8) {
+                Image(systemName: "wifi.slash").font(.system(size: 11))
+                Text("Offline").font(Typo.meta)
+                if !vm.offlineQueue.isEmpty {
+                    Text("\u{2022} \(vm.offlineQueue.count) queued").font(Typo.meta).opacity(0.8)
+                }
+            }
+            .foregroundStyle(.white).frame(maxWidth: .infinity)
+            .padding(.vertical, 6).background(Color.secondary.opacity(0.7))
+        } else if vm.offlineQueue.isProcessing {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.mini).tint(.white)
+                Text("Syncing \(vm.offlineQueue.count) queued actions...").font(Typo.meta)
+            }
+            .foregroundStyle(.white).frame(maxWidth: .infinity)
+            .padding(.vertical, 6).background(Color.clear_.opacity(0.7))
         }
     }
 
@@ -294,7 +327,7 @@ struct HomeView: View {
 
     private var vesselsList: some View {
         ScrollView {
-            LazyVStack(spacing: 14) {
+            LazyVStack(spacing: 16) {
                 ForEach(filteredVessels) { vessel in
                     let seafarers = vm.seafarersForVessel(vessel.id)
                     let compliance = vm.complianceChecksForVessel(vessel.id)
