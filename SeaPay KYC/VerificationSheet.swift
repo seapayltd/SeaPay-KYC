@@ -20,6 +20,7 @@ struct VerificationSheet: View {
     private var c: KYCCheck { vm.checks.first(where: { $0.id == check.id }) ?? check }
     private var hasResults: Bool { c.rawIDResponse != nil || c.completedAt != nil }
     private var isWaitingForInvite: Bool { c.sessionId != nil && c.completedAt == nil && c.rawIDResponse == nil }
+    private var isCollaborator: Bool { UserDefaults.standard.bool(forKey: "isCollaborator") && AppConfiguration.apiKey.isEmpty }
     private var isExpiredSession: Bool { c.sessionId != nil && c.status == .incomplete && c.completedAt != nil }
 
     // Config
@@ -406,8 +407,8 @@ struct VerificationSheet: View {
                 }
             }
 
-            // Pinned review bar
-            if !amlRunning && !poaRunning && hasResults {
+            // Pinned review bar (agents only — collaborators see read-only)
+            if !amlRunning && !poaRunning && hasResults && !isCollaborator {
                 if c.reviewDecision != nil {
                     // Decision already made — show change options
                     VStack(spacing: 6) {
@@ -492,8 +493,8 @@ struct VerificationSheet: View {
                     if let v = c.personalNumber { DataRow(label: "Personal No.", value: v) }
                     if let v = c.extractedAddress, !v.isEmpty { DataRow(label: "Address", value: v) }
                 }
-                // Images
-                if let paths = c.documentImagePaths, !paths.isEmpty {
+                // Images (hidden for collaborators — PII)
+                if !isCollaborator, let paths = c.documentImagePaths, !paths.isEmpty {
                     Divider()
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 6) {

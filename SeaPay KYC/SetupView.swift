@@ -488,7 +488,8 @@ struct SettingsSheet: View {
                         }
                     }
 
-                    // MARK: Connections
+                    // MARK: Connections (agents only)
+                    if !UserDefaults.standard.bool(forKey: "isCollaborator") || !AppConfiguration.apiKey.isEmpty {
                     settingsSection("Connections") {
                         settingsRow(icon: "key", label: "Access Code") {
                             SecureField("Didit API Key", text: $apiKey)
@@ -541,6 +542,7 @@ struct SettingsSheet: View {
                                 .font(Typo.body).multilineTextAlignment(.trailing)
                         }
                     }
+                    } // end Connections if
 
                     // MARK: Appearance
                     settingsSection("Appearance") {
@@ -642,7 +644,8 @@ struct SettingsSheet: View {
                         }
                     }
 
-                    // MARK: API & Demo
+                    // MARK: API & Demo (agents only)
+                    if !UserDefaults.standard.bool(forKey: "isCollaborator") || !AppConfiguration.apiKey.isEmpty {
                     settingsSection("API Usage") {
                         NavigationLink {
                             APIUsageView()
@@ -676,6 +679,7 @@ struct SettingsSheet: View {
                             .padding(.horizontal, 16).padding(.bottom, 8)
                         }
                     }
+                    } // end API & Demo if
 
                     // Danger zone
                     settingsSection("") {

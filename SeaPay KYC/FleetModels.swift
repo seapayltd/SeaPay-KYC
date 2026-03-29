@@ -82,6 +82,25 @@ enum FleetScenario: String, Codable, CaseIterable, Identifiable {
 
     /// For management handover, all docs are relevant
     var includesAllDocs: Bool { self == .managementHandover }
+
+    var requiredCrewDocTypes: [MaritimeDocType] {
+        switch self {
+        case .preSurvey:
+            return [.stcwBST, .cocDeck, .cocEngine, .medicalENG1, .survivalCraft, .advancedFirefighting]
+        case .vesselSale:
+            return [.passport, .seamansBook, .stcwBST]
+        case .crewChange:
+            return [.passport, .seamansBook, .medicalENG1, .flagEndorsement, .stcwBST, .yellowFever]
+        case .pscPreparation:
+            return [.passport, .seamansBook, .stcwBST, .cocDeck, .cocEngine, .medicalENG1, .gmdss]
+        case .insuranceRenewal:
+            return []  // Crew docs not typically needed for insurance
+        case .charterDueDiligence:
+            return [.stcwBST]  // Minimal crew doc verification
+        case .managementHandover:
+            return []  // All docs — no filter
+        }
+    }
 }
 
 // MARK: - Workspace Vessel (from backend)

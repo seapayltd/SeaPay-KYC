@@ -220,16 +220,12 @@ struct FleetTabView: View {
                     }
                 }
 
-                // Scenario progress bar
+                // Scenario progress
                 if !requiredDocs.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ProgressBar(value: docsReady, total: requiredDocs.count)
-                        Text("\(docsReady)/\(requiredDocs.count) documents ready").font(.system(size: 10)).foregroundStyle(.secondary)
-                    }
+                    ProgressBar(value: docsReady, total: requiredDocs.count)
                 }
 
-                // Added by
-                Text("Added by \(wv.addedByName)").font(.system(size: 10)).foregroundStyle(.quaternary)
+                Text("Added by \(wv.addedByName) \u{2022} \(scenario?.shortName ?? "")").font(.system(size: 10)).foregroundStyle(.quaternary)
             }
             .padding(.horizontal, 20).padding(.vertical, 14)
 
@@ -309,6 +305,8 @@ struct FleetTabView: View {
                         }
                     }
                 }
+                // Sync files (download missing images from server)
+                await FilesSyncService.shared.downloadMissingFiles(vesselId: wv.vesselId, vm: vm)
             } catch { /* individual vessel sync failure — continue with others */ }
         }
         vm.saveChecks()
@@ -320,6 +318,8 @@ struct FleetTabView: View {
         syncingVesselId = wv.vesselId; defer { syncingVesselId = nil }
         do {
             _ = try await CollaborationService.shared.pushVessel(vessel: vessel, checks: vm.checksForVessel(vessel.id))
+            // Upload any local images to server
+            await FilesSyncService.shared.uploadMissingFiles(vesselId: vessel.id, vm: vm)
             Haptics.success(); await refresh()
         } catch { self.error = "Push failed: \(error.localizedDescription)" }
     }

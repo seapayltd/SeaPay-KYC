@@ -96,6 +96,22 @@ function initSchema(): void {
     try { $db->exec("ALTER TABLE sync_snapshots ADD COLUMN vessel_id VARCHAR(36) DEFAULT NULL"); } catch (Exception $e) {}
     try { $db->exec("ALTER TABLE sync_snapshots ADD COLUMN vessel_name VARCHAR(100) DEFAULT ''"); } catch (Exception $e) {}
 
+    $db->exec("CREATE TABLE IF NOT EXISTS workspace_files (
+        id VARCHAR(36) PRIMARY KEY,
+        workspace_id VARCHAR(36) NOT NULL,
+        vessel_id VARCHAR(36) DEFAULT NULL,
+        filename VARCHAR(255) NOT NULL,
+        original_name VARCHAR(255) DEFAULT '',
+        mime_type VARCHAR(50) DEFAULT 'image/jpeg',
+        size_bytes INT DEFAULT 0,
+        uploaded_by_agent VARCHAR(36),
+        uploaded_by_name VARCHAR(100) DEFAULT '',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+        INDEX idx_workspace_vessel (workspace_id, vessel_id),
+        UNIQUE KEY unique_file (workspace_id, filename)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
     $db->exec("CREATE TABLE IF NOT EXISTS activity_log (
         id VARCHAR(36) PRIMARY KEY,
         workspace_id VARCHAR(36) NOT NULL,
