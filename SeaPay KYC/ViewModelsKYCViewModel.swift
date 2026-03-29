@@ -500,8 +500,10 @@ class KYCViewModel: ObservableObject {
         if let c = sea.cbaReference { checks[i].cbaReference = c }
         if let m = sea.mlcCompliant { checks[i].mlcCompliant = m }
         if let r = sea.repatriationPort { checks[i].repatriationPort = r }
-        if let s = sea.contractStart, let d = fmt.date(from: s) { checks[i].contractStartDate = d }
-        if let e = sea.contractEnd, let d = fmt.date(from: e) { checks[i].contractEndDate = d }
+        let startDate = sea.contractStart.flatMap { fmt.date(from: $0) }
+        let endDate = sea.contractEnd.flatMap { fmt.date(from: $0) }
+        if let d = startDate { checks[i].contractStartDate = d }
+        if let d = endDate { checks[i].contractEndDate = d }
         // Contact info — only fill if not already set
         if checks[i].phoneNumber == nil, let p = sea.phoneNumber, !p.isEmpty { checks[i].phoneNumber = p }
         if checks[i].emailAddress == nil, let e = sea.emailAddress, !e.isEmpty { checks[i].emailAddress = e }
@@ -511,6 +513,16 @@ class KYCViewModel: ObservableObject {
         if checks[i].nextOfKin == nil, let n = sea.nextOfKinName, !n.isEmpty {
             checks[i].nextOfKin = NextOfKin(name: n, relationship: sea.nextOfKinRelation ?? "")
         }
+
+        // Update the SEA document in the portfolio with extracted dates
+        if var docs = checks[i].documents,
+           let di = docs.firstIndex(where: { $0.type == .seafarerEmployment }) {
+            if docs[di].issueDate == nil, let d = startDate { docs[di].issueDate = d }
+            if docs[di].expiryDate == nil, let d = endDate { docs[di].expiryDate = d }
+            if docs[di].issuingAuthority == nil, let a = sea.manningAgency, !a.isEmpty { docs[di].issuingAuthority = a }
+            checks[i].documents = docs
+        }
+
         saveChecks()
         if let vid = checks[i].vesselId { autoPushVessel(vesselId: vid) }
     }

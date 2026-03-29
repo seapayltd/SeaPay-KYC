@@ -69,17 +69,20 @@ class FilesSyncService: ObservableObject {
     // MARK: - Upload All Missing Files
 
     func uploadMissingFiles(vesselId: String, vm: KYCViewModel) async {
-        guard let token = CollaborationService.shared.workspace?.token else { return }
+        guard let token = CollaborationService.shared.workspace?.token else {
+            fileSyncLogger.warning("Upload skipped — no workspace token")
+            return
+        }
 
         let localFiles = collectLocalFilenames(vesselId: vesselId, vm: vm)
         guard !localFiles.isEmpty else { return }
 
-        // Get already-uploaded files
         let remoteFilenames: Set<String>
         do {
             remoteFilenames = Set(try await listRemoteFiles(vesselId: vesselId).map(\.filename))
         } catch {
-            fileSyncLogger.error("Failed to list remote files: \(error.localizedDescription)")
+            fileSyncLogger.error("Upload: failed to list remote files: \(error.localizedDescription)")
+            syncProgress = "Upload failed — could not reach server"
             return
         }
 
@@ -88,71 +91,78 @@ class FilesSyncService: ObservableObject {
 
         isSyncing = true
         var uploaded = 0
+        var failed = 0
         let activityId = SyncActivityMonitor.shared.begin("Uploading \(missing.count) file\(missing.count == 1 ? "" : "s")", type: .upload)
 
         for filename in missing {
             let filePath = vm.imagesDir.appendingPathComponent(filename)
             guard let fileData = try? Data(contentsOf: filePath) else {
                 fileSyncLogger.warning("Local file not found: \(filename)")
-                continue
+                failed += 1; continue
             }
 
-            uploaded += 1
-            SyncActivityMonitor.shared.update(activityId, description: "Uploading \(uploaded)/\(missing.count)")
-            syncProgress = "Uploading \(uploaded)/\(missing.count)..."
+            SyncActivityMonitor.shared.update(activityId, description: "Uploading \(uploaded + 1)/\(missing.count)")
+            syncProgress = "Uploading \(uploaded + 1)/\(missing.count)..."
 
-            let success = await uploadFile(filename: filename, data: fileData, vesselId: vesselId, token: token)
-            if !success { uploaded -= 1 }
+            if await uploadFile(filename: filename, data: fileData, vesselId: vesselId, token: token) {
+                uploaded += 1
+            } else { failed += 1 }
         }
 
         SyncActivityMonitor.shared.complete(activityId, success: uploaded > 0)
-        syncProgress = nil
+        if failed > 0 { syncProgress = "\(failed) file\(failed == 1 ? "" : "s") failed to upload" }
+        else { syncProgress = nil }
         isSyncing = false
     }
 
     // MARK: - Download All Missing Files
 
     func downloadMissingFiles(vesselId: String, vm: KYCViewModel) async {
-        guard let token = CollaborationService.shared.workspace?.token else { return }
+        guard let token = CollaborationService.shared.workspace?.token else {
+            fileSyncLogger.warning("Download skipped — no workspace token")
+            return
+        }
 
         let remoteFiles: [RemoteFile]
         do {
             remoteFiles = try await listRemoteFiles(vesselId: vesselId)
         } catch {
-            fileSyncLogger.error("Failed to list remote files: \(error.localizedDescription)")
+            fileSyncLogger.error("Download: failed to list remote files: \(error.localizedDescription)")
+            syncProgress = "Download failed — could not reach server"
             return
         }
 
         guard !remoteFiles.isEmpty else { return }
 
         let fm = FileManager.default
-        // Find which files we don't have locally
         let missingFiles = remoteFiles.filter { !fm.fileExists(atPath: vm.imagesDir.appendingPathComponent($0.filename).path) }
         guard !missingFiles.isEmpty else { return }
 
         isSyncing = true
         var downloaded = 0
+        var failed = 0
         let activityId = SyncActivityMonitor.shared.begin("Downloading \(missingFiles.count) file\(missingFiles.count == 1 ? "" : "s")", type: .download)
 
         for remote in missingFiles {
-            downloaded += 1
-            SyncActivityMonitor.shared.update(activityId, description: "Downloading \(downloaded)/\(missingFiles.count)")
-            syncProgress = "Downloading \(downloaded)/\(missingFiles.count)..."
+            SyncActivityMonitor.shared.update(activityId, description: "Downloading \(downloaded + 1)/\(missingFiles.count)")
+            syncProgress = "Downloading \(downloaded + 1)/\(missingFiles.count)..."
 
             if let data = await downloadFile(filename: remote.filename, token: token) {
                 let localPath = vm.imagesDir.appendingPathComponent(remote.filename)
                 do {
                     try data.write(to: localPath)
+                    downloaded += 1
                 } catch {
-                    downloaded -= 1
+                    failed += 1
                     fileSyncLogger.error("Failed to write \(remote.filename): \(error.localizedDescription)")
                 }
-            } else { downloaded -= 1 }
+            } else { failed += 1 }
         }
 
         SyncActivityMonitor.shared.complete(activityId, success: downloaded > 0)
         for f in missingFiles { vm.invalidateImageCache(filename: f.filename) }
-        syncProgress = nil
+        if failed > 0 { syncProgress = "\(failed) file\(failed == 1 ? "" : "s") failed to download" }
+        else { syncProgress = nil }
         isSyncing = false
     }
 

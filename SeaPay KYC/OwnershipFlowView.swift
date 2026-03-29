@@ -93,7 +93,7 @@ struct OwnershipFlowView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { saveAndDismiss() } }
             }
-            .navigationDestination(for: String.self) { checkId in PersonView(vm: vm, checkId: checkId) }
+            // Person navigation uses inline NavigationLink
             .sheet(item: $inviteCheck) { InviteSheet(vm: vm, check: $0) }
             .fullScreenCover(isPresented: $showCamera) { CameraCapture(result: $capturedData).ignoresSafeArea() }
             .sheet(isPresented: $showFilePicker) {

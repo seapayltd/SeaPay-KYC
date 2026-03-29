@@ -57,9 +57,12 @@ switch ($action) {
                     'data_synced', 'sync', "v{$nextVersion}",
                     "{$vesselCount} vessels, {$checkCount} checks");
 
-        // Prune old snapshots (keep last 50)
-        $db->prepare("DELETE FROM sync_snapshots WHERE workspace_id = ? AND version <= (SELECT * FROM (SELECT COALESCE(MAX(version), 0) - 50 FROM sync_snapshots WHERE workspace_id = ?) AS sub)")
-           ->execute([$auth['workspace_id'], $auth['workspace_id']]);
+        // Prune old snapshots (keep last 50 per vessel)
+        if ($vesselId) {
+            $pruneThreshold = max(0, $nextVersion - 50);
+            $db->prepare("DELETE FROM sync_snapshots WHERE workspace_id = ? AND vessel_id = ? AND version <= ?")
+               ->execute([$auth['workspace_id'], $vesselId, $pruneThreshold]);
+        }
 
         jsonResponse([
             'version' => $nextVersion,

@@ -104,7 +104,7 @@ struct HomeView: View {
                     }
                 }
                 .background(Color.surface.ignoresSafeArea())
-                .navigationDestination(for: String.self) { checkId in PersonView(vm: vm, checkId: checkId) }
+                // Person navigation uses inline NavigationLink — no registration needed
             }
         }
         .searchable(text: $searchText, placement: .sidebar, prompt: "Search")
@@ -153,7 +153,7 @@ struct HomeView: View {
                     .navigationBarTitleDisplayMode(.large)
                     .toolbar { settingsToolbar; if !isCollaborator { addButtonToolbar }; moreActionsToolbar }
                     .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search vessels")
-                    .navigationDestination(for: String.self) { checkId in PersonView(vm: vm, checkId: checkId) }
+                    // Person navigation uses inline NavigationLink — no registration needed
                 }
                 .tabItem { Label("Vessels", systemImage: "ferry") }
                 .tag(0)
@@ -170,7 +170,7 @@ struct HomeView: View {
                 .navigationBarTitleDisplayMode(.large)
                 .toolbar { settingsToolbar; if !isCollaborator { addButtonToolbar } }
                 .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search crew")
-                .navigationDestination(for: String.self) { checkId in PersonView(vm: vm, checkId: checkId) }
+                // Person navigation uses inline NavigationLink — no registration needed
             }
             .tabItem { Label("People", systemImage: "person.3") }
             .tag(1)
@@ -181,6 +181,7 @@ struct HomeView: View {
                     .navigationTitle("Workspace")
                     .navigationBarTitleDisplayMode(.large)
                     .toolbar { settingsToolbar }
+                    // Person navigation uses inline NavigationLink — no registration needed
             }
             .tabItem { Label("Workspace", systemImage: "person.3.sequence") }
             .tag(2)
@@ -446,7 +447,7 @@ struct HomeView: View {
                         .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 6)
 
                         ForEach(checks) { check in
-                            NavigationLink(value: check.id) {
+                            NavigationLink { PersonView(vm: vm, checkId: check.id) } label: {
                                 checkRow(check)
                             }
                             .buttonStyle(.plain)
@@ -766,7 +767,6 @@ struct ExpiryDetailView: View {
         .listStyle(.insetGrouped)
         .navigationTitle("Document Expiry")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(for: String.self) { checkId in PersonView(vm: vm, checkId: checkId) }
         .sheet(isPresented: Binding(
             get: { selectedVesselDoc != nil },
             set: { if !$0 { selectedVesselDoc = nil } }
@@ -797,7 +797,7 @@ struct ExpiryDetailView: View {
     }
 
     private func idRow(_ check: KYCCheck, color: Color) -> some View {
-        NavigationLink(value: check.id) {
+        NavigationLink { PersonView(vm: vm, checkId: check.id) } label: {
             HStack {
                 RoundedRectangle(cornerRadius: 1.5).fill(color)
                     .frame(width: 3, height: 28)
@@ -814,7 +814,7 @@ struct ExpiryDetailView: View {
     }
 
     private func docRow(_ check: KYCCheck, _ doc: CrewDocument, color: Color) -> some View {
-        NavigationLink(value: check.id) {
+        NavigationLink { PersonView(vm: vm, checkId: check.id) } label: {
             HStack {
                 RoundedRectangle(cornerRadius: 1.5).fill(color)
                     .frame(width: 3, height: 28)

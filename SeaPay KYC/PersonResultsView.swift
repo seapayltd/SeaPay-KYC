@@ -47,15 +47,9 @@ struct PersonResultsView: View {
         .onAppear { loadResults(); notes = c.agentNotes ?? "" }
         .toolbar { toolbarMenu }
         .onChange(of: profileData) { _, d in if let d { vm.setProfilePhoto(checkId: checkId, imageData: d) } }
-        .task(id: selProfilePhoto) {
-            guard let item = selProfilePhoto else { return }
-            // Load raw bytes then convert — most reliable path for all photo formats
-            guard let data = try? await item.loadTransferable(type: Data.self) else { return }
-            if let jpeg = UIImage(data: data)?.jpegData(compressionQuality: 0.85) {
-                vm.setProfilePhoto(checkId: checkId, imageData: jpeg)
-            } else {
-                vm.setProfilePhoto(checkId: checkId, imageData: data)
-            }
+        .onChange(of: selProfilePhoto) { _, item in
+            guard let item else { return }
+            loadPhotoFromLibrary(item)
         }
         .fullScreenCover(isPresented: $showProfileCam) { CameraCapture(result: $profileData).ignoresSafeArea() }
         .fullScreenCover(isPresented: Binding(get: { previewImage != nil }, set: { if !$0 { previewImage = nil } })) {
@@ -393,10 +387,26 @@ struct PersonResultsView: View {
 
     // MARK: - Actions
 
+    private func loadPhotoFromLibrary(_ item: PhotosPickerItem) {
+        Task { @MainActor in
+            if let photo = try? await item.loadTransferable(type: ProfileImageTransfer.self) {
+                vm.setProfilePhoto(checkId: checkId, imageData: photo.data)
+            }
+        }
+    }
+
     private func exportVCard() {
         guard let data = vm.generateVCard(for: c) else { return }
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(c.displayName.replacingOccurrences(of: " ", with: "_")).vcf")
-        try? data.write(to: url); vCardURL = url; showVCard = true; Haptics.light()
+        // Sanitize filename: strip diacritics, remove non-ASCII, replace spaces
+        let safe = c.displayName
+            .folding(options: .diacriticInsensitive, locale: .current)
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: "_")
+        let filename = (safe.isEmpty ? "contact" : safe) + ".vcf"
+        let url = vm.imagesDir.appendingPathComponent(filename)
+        try? data.write(to: url)
+        vCardURL = url; showVCard = true; Haptics.light()
     }
 
     private func rerunAML() async {
@@ -415,5 +425,25 @@ struct PersonResultsView: View {
             else if let decision = try? JSONDecoder().decode(SessionDecision.self, from: d) { idResult = decision.idVerifications?.first; if amlResult == nil { amlResult = decision.aml?.first } }
         }
         if let raw = c.rawAMLResponse, let d = raw.data(using: .utf8) { amlResult = try? JSONDecoder().decode(AMLScreeningResponse.self, from: d).aml }
+    }
+}
+
+// MARK: - Profile Image Transfer (reliable PhotosPicker loading)
+
+import UniformTypeIdentifiers
+
+private struct ProfileImageTransfer: Transferable {
+    let data: Data
+
+    static var transferRepresentation: some TransferRepresentation {
+        // .image is the abstract supertype — PhotosPicker always provides this
+        DataRepresentation(importedContentType: .image) { data in
+            // Convert whatever format (HEIC, PNG, JPEG, TIFF) to JPEG
+            guard let image = UIImage(data: data) else {
+                return ProfileImageTransfer(data: data)
+            }
+            let jpeg = image.jpegData(compressionQuality: 0.85) ?? data
+            return ProfileImageTransfer(data: jpeg)
+        }
     }
 }

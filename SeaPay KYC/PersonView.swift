@@ -9,6 +9,11 @@
 import SwiftUI
 import PhotosUI
 
+/// Wrapper type so person navigation doesn't collide with vessel ID navigation (both String)
+struct PersonNavID: Hashable {
+    let checkId: String
+}
+
 struct PersonView: View {
     @ObservedObject var vm: KYCViewModel
     let checkId: String

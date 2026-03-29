@@ -160,7 +160,7 @@ struct VesselDetailView: View {
             // Crew
             Section {
                 ForEach(seafarerCrew) { check in
-                    NavigationLink(value: check.id) { crewRow(check) }
+                    NavigationLink { PersonView(vm: vm, checkId: check.id) } label: { crewRow(check) }
                         .contextMenu { personContextMenu(check) }
                         .swipeActions(edge: .leading) {
                             if vm.vessels.count > 1 {
@@ -187,7 +187,7 @@ struct VesselDetailView: View {
             if !shoreBasedPersonnel.isEmpty {
                 Section {
                     ForEach(shoreBasedPersonnel) { check in
-                        NavigationLink(value: check.id) { crewRow(check) }
+                        NavigationLink { PersonView(vm: vm, checkId: check.id) } label: { crewRow(check) }
                             .contextMenu { personContextMenu(check) }
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) { checkToDelete = check } label: { Label("Delete", systemImage: "trash") }
@@ -224,7 +224,7 @@ struct VesselDetailView: View {
                 }
 
                 ForEach(complianceEntities) { check in
-                    NavigationLink(value: check.id) { crewRow(check) }
+                    NavigationLink { PersonView(vm: vm, checkId: check.id) } label: { crewRow(check) }
                         .contextMenu { personContextMenu(check) }
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) { checkToDelete = check } label: { Label("Delete", systemImage: "trash") }
@@ -261,7 +261,6 @@ struct VesselDetailView: View {
         } message: {
             Text("This will delete \(v.name) and unlink all crew. Crew records will be preserved but unassigned.")
         }
-        .navigationDestination(for: String.self) { checkId in PersonView(vm: vm, checkId: checkId) }
         .sheet(item: $inviteCheck) { InviteSheet(vm: vm, check: $0) }
         .navigationDestination(isPresented: $showExportPDF) { ExportPreviewView(vm: vm, vesselId: vessel.id, type: .pdf) }
         .navigationDestination(isPresented: $showExportCSV) { ExportPreviewView(vm: vm, vesselId: vessel.id, type: .csv) }

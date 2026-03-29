@@ -471,25 +471,18 @@ struct ContactEditorSheet: View {
     let check: KYCCheck
     @Environment(\.dismiss) private var dismiss
 
-    // Contact
-    @State private var phone = ""
-    @State private var email = ""
-    // Emergency
+    @State private var phone = ""; @State private var email = ""
     @State private var ecName = ""; @State private var ecPhone = ""; @State private var ecRelation = ""
-    // Next of kin
     @State private var nokName = ""; @State private var nokRelation = ""
-    // Contract
     @State private var availability: KYCCheck.AvailabilityStatus?
     @State private var hasStart = false; @State private var hasEnd = false
     @State private var contractStart = Date()
     @State private var contractEnd = Calendar.current.date(byAdding: .month, value: 6, to: Date()) ?? Date()
-    // SEA fields
     @State private var wages = ""; @State private var currency = "USD"
     @State private var hoursOfWork = ""; @State private var leaveEntitlement = ""
     @State private var portOfEngagement = ""; @State private var manningAgency = ""
     @State private var cbaReference = ""; @State private var repatriationPort = ""
     @State private var mlcCompliant: Bool? = nil
-    // SEA upload
     @State private var showSEAFilePicker = false
     @State private var seaExtracting = false; @State private var seaError: String?
 
@@ -497,193 +490,222 @@ struct ContactEditorSheet: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 28) {
-                    // ── SEA Upload (top — auto-fills everything below) ──
-                    VStack(spacing: 10) {
-                        if seaExtracting {
-                            HStack(spacing: 10) {
-                                ProgressView().controlSize(.small)
-                                Text("Reading contract...").font(Typo.meta).foregroundStyle(.secondary)
-                            }
-                            .frame(maxWidth: .infinity).padding(.vertical, 20)
-                            .background(Color.surfaceMuted)
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
-                        } else {
-                            Button { showSEAFilePicker = true } label: {
-                                VStack(spacing: 8) {
-                                    Image(systemName: "doc.text.viewfinder")
-                                        .font(.system(size: 24)).foregroundStyle(.primary.opacity(0.2))
-                                    Text("Upload Employment Agreement")
-                                        .font(.system(size: 13, weight: .medium))
-                                    Text("PDF or photo — auto-fills all fields below")
-                                        .font(Typo.meta).foregroundStyle(.tertiary)
-                                }
-                                .frame(maxWidth: .infinity).padding(.vertical, 18)
-                                .background(Color.surfaceMuted.opacity(0.6))
-                                .clipShape(RoundedRectangle(cornerRadius: 14))
-                                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.primary.opacity(0.06), style: StrokeStyle(lineWidth: 1, dash: [6, 4])))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        if let e = seaError { Text(e).font(Typo.meta).foregroundStyle(Color.flagged) }
-                    }
-
-                    // ── Contact ──
-                    section("Contact") {
-                        field("Phone", text: $phone, prompt: "+30 697 123 4567", keyboard: .phonePad)
-                        field("Email", text: $email, prompt: "name@example.com", keyboard: .emailAddress)
-                    }
-
-                    // ── Emergency Contact ──
-                    section("Emergency Contact") {
-                        field("Name", text: $ecName, prompt: "Full name")
-                        field("Phone", text: $ecPhone, prompt: "+30 697...", keyboard: .phonePad)
-                        field("Relationship", text: $ecRelation, prompt: "Spouse, Parent, etc.")
-                    }
-
-                    // ── Next of Kin ──
-                    section("Next of Kin") {
-                        field("Name", text: $nokName, prompt: "Full name")
-                        field("Relationship", text: $nokRelation, prompt: "Spouse, Parent, Child")
-                    }
-
-                    // ── Status ──
-                    section("Status") {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 6) {
-                                ForEach(KYCCheck.AvailabilityStatus.allCases) { s in
-                                    Button { availability = availability == s ? nil : s } label: {
-                                        Text(s.rawValue)
-                                            .font(.system(size: 11, weight: availability == s ? .semibold : .regular))
-                                            .foregroundStyle(availability == s ? .primary : .secondary)
-                                            .padding(.horizontal, 12).padding(.vertical, 8)
-                                            .background(availability == s ? Color.primary.opacity(0.08) : Color.surfaceMuted)
-                                            .clipShape(Capsule())
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                        }
-                    }
-
-                    // ── Contract ──
-                    section("Contract") {
-                        HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Toggle("Start", isOn: $hasStart).font(Typo.meta).tint(.primary)
-                                if hasStart { DatePicker("", selection: $contractStart, displayedComponents: .date).labelsHidden() }
-                            }
-                            VStack(alignment: .leading, spacing: 4) {
-                                Toggle("End", isOn: $hasEnd).font(Typo.meta).tint(.primary)
-                                if hasEnd { DatePicker("", selection: $contractEnd, displayedComponents: .date).labelsHidden() }
-                            }
-                        }
-                    }
-
-                    // ── Wages & Terms (SEA) ──
-                    section("Wages & Terms") {
-                        HStack(spacing: 10) {
-                            field("Wages", text: $wages, prompt: "3500.00", keyboard: .decimalPad)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Currency").font(Typo.meta).foregroundStyle(.tertiary)
-                                Menu {
-                                    ForEach(currencies, id: \.self) { c in
-                                        Button(c) { currency = c }
-                                    }
-                                } label: {
-                                    HStack {
-                                        Text(currency).font(Typo.body)
-                                        Image(systemName: "chevron.up.chevron.down").font(.system(size: 8))
-                                    }
-                                    .foregroundStyle(.primary)
-                                    .padding(12)
-                                    .frame(minWidth: 80)
-                                    .background(Color.surfaceMuted)
-                                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                                }
-                            }
-                        }
-                        field("Hours of Work", text: $hoursOfWork, prompt: "8 hours/day")
-                        field("Leave", text: $leaveEntitlement, prompt: "2.5 days/month")
-                    }
-
-                    // ── Maritime ──
-                    section("Maritime") {
-                        field("Port of Engagement", text: $portOfEngagement, prompt: "Manila, Piraeus...")
-                        field("Manning Agency", text: $manningAgency, prompt: "Agency name")
-                        field("CBA Reference", text: $cbaReference, prompt: "ITF TCC, etc.")
-                        field("Repatriation Port", text: $repatriationPort, prompt: "Home port")
-                        HStack {
-                            Text("MLC 2006").font(Typo.meta).foregroundStyle(.secondary)
-                            Spacer()
-                            HStack(spacing: 0) {
-                                mlcButton("Yes", value: true)
-                                mlcButton("No", value: false)
-                                mlcButton("—", value: nil)
-                            }
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                        }
-                    }
-
-                    Spacer(minLength: 40)
-                }
-                .padding(.horizontal, 20).padding(.top, 12)
+            VStack(spacing: 0) {
+                editorScroll
+                saveBar
             }
             .background(Color.surface.ignoresSafeArea())
-            .navigationTitle("Contact & Contract")
+            .navigationTitle("Personal Details")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { save(); dismiss() }.fontWeight(.semibold)
-                }
-            }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
             .onAppear { loadExisting() }
             .sheet(isPresented: $showSEAFilePicker) {
                 FilePicker { url in
-                    if url.startAccessingSecurityScopedResource() {
-                        defer { url.stopAccessingSecurityScopedResource() }
-                        if let data = try? Data(contentsOf: url) { Task { await extractSEA(data) } }
-                    } else {
-                        if let data = try? Data(contentsOf: url) { Task { await extractSEA(data) } }
-                    }
+                    let data: Data? = url.startAccessingSecurityScopedResource()
+                        ? { defer { url.stopAccessingSecurityScopedResource() }; return try? Data(contentsOf: url) }()
+                        : try? Data(contentsOf: url)
+                    if let data { Task { await extractSEA(data) } }
                 }
             }
         }
     }
 
-    // MARK: - Components
+    // MARK: - Scroll Content
 
-    private func section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title.uppercased()).font(Typo.meta).foregroundStyle(.secondary).tracking(0.6)
-            content()
+    private var editorScroll: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 12) {
+                seaUploadCard
+                contactCard
+                emergencyCard
+                contractCard
+                wagesCard
+                maritimeCard
+            }
+            .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 20)
         }
     }
 
-    private func field(_ label: String, text: Binding<String>, prompt: String, keyboard: UIKeyboardType = .default) -> some View {
+    // MARK: - SEA Upload Card
+
+    private var seaUploadCard: some View {
+        VStack(spacing: 8) {
+            if seaExtracting {
+                HStack(spacing: 10) { ProgressView().controlSize(.small); Text("Reading contract...").font(Typo.meta).foregroundStyle(.secondary) }
+                    .frame(maxWidth: .infinity).padding(.vertical, 16)
+            } else {
+                Button { showSEAFilePicker = true } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "doc.text.viewfinder").font(.system(size: 20)).foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Upload Employment Agreement").font(Typo.body)
+                            Text("Auto-fills all fields from PDF or photo").font(Typo.meta).foregroundStyle(.tertiary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(.quaternary)
+                    }
+                    .padding(14)
+                }
+                .buttonStyle(.plain)
+            }
+            if let e = seaError { Text(e).font(Typo.meta).foregroundStyle(Color.flagged).padding(.horizontal, 14) }
+        }
+        .background(Color.surfaceMuted.opacity(0.3))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    // MARK: - Contact Card
+
+    private var contactCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader("Contact")
+            ef("Phone", text: $phone, prompt: "+30 697 123 4567", keyboard: .phonePad)
+            ef("Email", text: $email, prompt: "name@example.com", keyboard: .emailAddress)
+        }
+        .padding(14)
+        .background(Color.surfaceMuted.opacity(0.3))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    // MARK: - Emergency Card
+
+    private var emergencyCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader("Emergency & Next of Kin")
+            ef("Emergency Name", text: $ecName, prompt: "Full name")
+            HStack(spacing: 10) {
+                ef("Phone", text: $ecPhone, prompt: "+30 697...", keyboard: .phonePad)
+                ef("Relation", text: $ecRelation, prompt: "Spouse")
+            }
+            Divider().padding(.vertical, 2)
+            HStack(spacing: 10) {
+                ef("Next of Kin", text: $nokName, prompt: "Full name")
+                ef("Relation", text: $nokRelation, prompt: "Spouse")
+            }
+        }
+        .padding(14)
+        .background(Color.surfaceMuted.opacity(0.3))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    // MARK: - Contract Card
+
+    private var contractCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader("Contract")
+            // Availability pills
+            HStack(spacing: 6) {
+                ForEach(KYCCheck.AvailabilityStatus.allCases) { s in
+                    Button { availability = availability == s ? nil : s } label: {
+                        Text(s.rawValue).font(Typo.meta)
+                            .foregroundStyle(availability == s ? .primary : .secondary)
+                            .padding(.horizontal, 12).padding(.vertical, 7)
+                            .background(availability == s ? Color.primary.opacity(0.08) : Color.surfaceMuted)
+                            .clipShape(Capsule())
+                    }.buttonStyle(.plain)
+                }
+            }
+            // Dates
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Start", isOn: $hasStart).font(Typo.meta).tint(.primary)
+                    if hasStart { DatePicker("", selection: $contractStart, displayedComponents: .date).labelsHidden() }
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("End", isOn: $hasEnd).font(Typo.meta).tint(.primary)
+                    if hasEnd { DatePicker("", selection: $contractEnd, displayedComponents: .date).labelsHidden() }
+                }
+            }
+        }
+        .padding(14)
+        .background(Color.surfaceMuted.opacity(0.3))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    // MARK: - Wages Card
+
+    private var wagesCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader("Wages & Terms")
+            HStack(spacing: 10) {
+                ef("Amount", text: $wages, prompt: "3500.00", keyboard: .decimalPad)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Currency").font(Typo.meta).foregroundStyle(.tertiary)
+                    Menu {
+                        ForEach(currencies, id: \.self) { c in Button(c) { currency = c } }
+                    } label: {
+                        HStack(spacing: 4) { Text(currency).font(Typo.body); Image(systemName: "chevron.up.chevron.down").font(.system(size: 8)) }
+                            .foregroundStyle(.primary).padding(11).frame(minWidth: 80)
+                            .background(Color.surfaceMuted).clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                }
+            }
+            HStack(spacing: 10) {
+                ef("Hours/Day", text: $hoursOfWork, prompt: "8")
+                ef("Leave/Month", text: $leaveEntitlement, prompt: "2.5 days")
+            }
+        }
+        .padding(14)
+        .background(Color.surfaceMuted.opacity(0.3))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    // MARK: - Maritime Card
+
+    private var maritimeCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader("Maritime")
+            HStack(spacing: 10) {
+                ef("Port", text: $portOfEngagement, prompt: "Manila")
+                ef("Repatriation", text: $repatriationPort, prompt: "Home port")
+            }
+            ef("Manning Agency", text: $manningAgency, prompt: "Agency name")
+            ef("CBA Reference", text: $cbaReference, prompt: "ITF TCC, etc.")
+            // MLC
+            HStack {
+                Text("MLC 2006").font(Typo.meta).foregroundStyle(.secondary)
+                Spacer()
+                HStack(spacing: 0) {
+                    mlcPill("Yes", value: true); mlcPill("No", value: false); mlcPill("—", value: nil)
+                }.clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+        }
+        .padding(14)
+        .background(Color.surfaceMuted.opacity(0.3))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    // MARK: - Save Bar
+
+    private var saveBar: some View {
+        VStack(spacing: 0) {
+            Divider()
+            Button { save(); dismiss() } label: { Text("Save") }
+                .buttonStyle(PrimaryButtonStyle())
+                .padding(.horizontal, 24).padding(.vertical, 10)
+        }
+        .background(.ultraThinMaterial)
+    }
+
+    // MARK: - Helpers
+
+    private func ef(_ label: String, text: Binding<String>, prompt: String, keyboard: UIKeyboardType = .default) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(label).font(Typo.meta).foregroundStyle(.tertiary)
             TextField(prompt, text: text)
-                .font(Typo.body).keyboardType(keyboard)
-                .autocorrectionDisabled()
+                .font(Typo.body).keyboardType(keyboard).autocorrectionDisabled()
                 .textInputAutocapitalization(keyboard == .emailAddress ? .never : .words)
-                .padding(11)
-                .background(Color.surfaceMuted)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .padding(11).background(Color.surfaceMuted).clipShape(RoundedRectangle(cornerRadius: 10))
         }
     }
 
-    private func mlcButton(_ label: String, value: Bool?) -> some View {
+    private func mlcPill(_ label: String, value: Bool?) -> some View {
         Button { mlcCompliant = value } label: {
-            Text(label)
-                .font(.system(size: 11, weight: mlcCompliant == value ? .semibold : .regular))
+            Text(label).font(Typo.meta)
                 .foregroundStyle(mlcCompliant == value ? .primary : .secondary)
                 .padding(.horizontal, 12).padding(.vertical, 7)
                 .background(mlcCompliant == value ? Color.primary.opacity(0.08) : Color.surfaceMuted)
-        }
-        .buttonStyle(.plain)
+        }.buttonStyle(.plain)
     }
 
     // MARK: - SEA Extraction
