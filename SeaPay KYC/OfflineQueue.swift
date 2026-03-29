@@ -195,7 +195,7 @@ class OfflineQueue: ObservableObject {
     }
 
     private func processAMLScreening(_ action: QueuedAction, vm: KYCViewModel) async throws {
-        guard let name = action.amlName else { return }
+        guard action.amlName != nil else { return }
         _ = try await vm.runAMLScreening(checkId: action.checkId, monitoring: action.monitoring)
     }
 

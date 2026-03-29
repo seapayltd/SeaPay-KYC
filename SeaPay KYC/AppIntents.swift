@@ -10,9 +10,9 @@ import AppIntents
 // MARK: - Open App
 
 struct OpenOceanCheckIntent: AppIntent {
-    static var title: LocalizedStringResource = "Open OceanCheck"
-    static var description = IntentDescription("Open the OceanCheck maritime compliance app")
-    static var openAppWhenRun = true
+    static let title: LocalizedStringResource = "Open OceanCheck"
+    static let description: IntentDescription = "Open the OceanCheck maritime compliance app"
+    static let openAppWhenRun = true
 
     func perform() async throws -> some IntentResult {
         return .result()
@@ -22,9 +22,9 @@ struct OpenOceanCheckIntent: AppIntent {
 // MARK: - Check Expiring Docs
 
 struct CheckExpiringDocsIntent: AppIntent {
-    static var title: LocalizedStringResource = "Check Expiring Documents"
-    static var description = IntentDescription("See how many maritime documents are expiring soon")
-    static var openAppWhenRun = true
+    static let title: LocalizedStringResource = "Check Expiring Documents"
+    static let description: IntentDescription = "See how many maritime documents are expiring soon"
+    static let openAppWhenRun = true
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let vm = await KYCViewModel()
@@ -44,9 +44,9 @@ struct CheckExpiringDocsIntent: AppIntent {
 // MARK: - Crew Count
 
 struct CrewCountIntent: AppIntent {
-    static var title: LocalizedStringResource = "How Many Crew"
-    static var description = IntentDescription("Get the total number of crew members across all vessels")
-    static var openAppWhenRun = false
+    static let title: LocalizedStringResource = "How Many Crew"
+    static let description: IntentDescription = "Get the total number of crew members across all vessels"
+    static let openAppWhenRun = false
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let vm = await KYCViewModel()
@@ -66,9 +66,9 @@ struct CrewCountIntent: AppIntent {
 // MARK: - Vessel Summary
 
 struct VesselSummaryIntent: AppIntent {
-    static var title: LocalizedStringResource = "Vessel Summary"
-    static var description = IntentDescription("Get a quick summary of your vessels and their compliance status")
-    static var openAppWhenRun = false
+    static let title: LocalizedStringResource = "Vessel Summary"
+    static let description: IntentDescription = "Get a quick summary of your vessels and their compliance status"
+    static let openAppWhenRun = false
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let vm = await KYCViewModel()
@@ -89,9 +89,9 @@ struct VesselSummaryIntent: AppIntent {
 // MARK: - Start Verification
 
 struct StartVerificationIntent: AppIntent {
-    static var title: LocalizedStringResource = "Start Crew Verification"
-    static var description = IntentDescription("Open OceanCheck to begin a new crew verification")
-    static var openAppWhenRun = true
+    static let title: LocalizedStringResource = "Start Crew Verification"
+    static let description: IntentDescription = "Open OceanCheck to begin a new crew verification"
+    static let openAppWhenRun = true
 
     func perform() async throws -> some IntentResult {
         return .result()

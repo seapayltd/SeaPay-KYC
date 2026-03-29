@@ -13,7 +13,7 @@ private let collabLogger = Logger(subsystem: "com.seapay.kyc", category: "Collab
 
 // MARK: - API Models
 
-struct WorkspaceInfo: Codable {
+struct WorkspaceInfo: Codable, Sendable {
     let workspaceId: String
     let name: String
     let code: String
@@ -25,7 +25,7 @@ struct WorkspaceInfo: Codable {
     }
 }
 
-struct WorkspaceDetail: Codable {
+struct WorkspaceDetail: Codable, Sendable {
     let workspace: WorkspaceMetadata
     let agents: [WorkspaceAgent]
     let latestVersion: Int
@@ -36,7 +36,7 @@ struct WorkspaceDetail: Codable {
     }
 }
 
-struct WorkspaceMetadata: Codable {
+struct WorkspaceMetadata: Codable, Sendable {
     let id: String
     let name: String
     let code: String
@@ -48,7 +48,7 @@ struct WorkspaceMetadata: Codable {
     }
 }
 
-struct WorkspaceAgent: Codable, Identifiable {
+struct WorkspaceAgent: Codable, Identifiable, Sendable {
     let agentId: String
     let agentName: String
     let agentOrg: String
@@ -70,7 +70,7 @@ struct WorkspaceAgent: Codable, Identifiable {
     }
 }
 
-struct SyncStatus: Codable {
+struct SyncStatus: Codable, Sendable {
     let latestVersion: Int
     let hasUpdates: Bool
     let updatesAvailable: Int
@@ -84,7 +84,7 @@ struct SyncStatus: Codable {
     }
 }
 
-struct SyncSnapshot: Codable {
+struct SyncSnapshot: Codable, Sendable {
     let id: String
     let agentId: String
     let agentName: String
@@ -102,7 +102,7 @@ struct SyncSnapshot: Codable {
     }
 }
 
-struct ActivityEvent: Codable, Identifiable {
+struct ActivityEvent: Codable, Identifiable, Sendable {
     let id: String
     let agentId: String
     let agentName: String
@@ -160,7 +160,7 @@ actor CollaborationService {
     // MARK: - Workspace Management
 
     func createWorkspace(name: String) async throws -> WorkspaceInfo {
-        guard let profile = AgentProfile.current else { throw CollabError.noProfile }
+        guard let profile = await MainActor.run(body: { AgentProfile.current }) else { throw CollabError.noProfile }
 
         let body: [String: Any] = [
             "name": name,
@@ -178,7 +178,7 @@ actor CollaborationService {
     }
 
     func joinWorkspace(code: String) async throws -> WorkspaceInfo {
-        guard let profile = AgentProfile.current else { throw CollabError.noProfile }
+        guard let profile = await MainActor.run(body: { AgentProfile.current }) else { throw CollabError.noProfile }
 
         let body: [String: Any] = [
             "code": code.uppercased(),
