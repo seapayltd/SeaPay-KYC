@@ -176,63 +176,56 @@ struct FleetTabView: View {
                     }
                     .padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 8)
 
-                    // Vessel list
+                    // Vessel cards — same layout as Vessels tab
                     if workspaceVessels.isEmpty {
-                        VStack(spacing: 8) {
-                            Image(systemName: "ferry").font(.system(size: 28)).foregroundStyle(.quaternary)
+                        VStack(spacing: 14) {
+                            Spacer(minLength: 60)
+                            Image(systemName: "ferry").font(.system(size: 44)).foregroundStyle(.quaternary)
                             Text(isCollaborator ? "Waiting for shared vessels" : "No vessels shared yet")
-                                .font(Typo.body).foregroundStyle(.secondary)
-                            if !isCollaborator {
-                                Text("Tap + to add a vessel").font(Typo.meta).foregroundStyle(.quaternary)
-                            }
+                                .font(.system(size: 16, weight: .semibold)).foregroundStyle(.secondary)
+                            Text(isCollaborator ? "The agent will share vessels with you" : "Tap New to add a vessel")
+                                .font(Typo.meta).foregroundStyle(.quaternary)
+                            Spacer()
                         }
-                        .frame(maxWidth: .infinity).padding(.vertical, 32)
+                        .frame(maxWidth: .infinity)
                     } else {
-                        VStack(spacing: 1) {
+                        LazyVStack(spacing: 16) {
                             ForEach(workspaceVessels) { wv in
                                 let lv = vm.vessels.first(where: { $0.id == wv.vesselId })
                                 if let lv {
                                     NavigationLink { VesselDetailView(vm: vm, vessel: lv) } label: {
-                                        vesselRow(wv, localVessel: lv)
+                                        vesselCard(wv, localVessel: lv)
                                     }.buttonStyle(.plain)
                                 } else {
-                                    vesselRow(wv, localVessel: nil)
+                                    vesselCard(wv, localVessel: nil)
                                 }
                             }
                         }
-                        .background(Color.surfaceMuted.opacity(0.2))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
                         .padding(.horizontal, 16)
                     }
 
-                    // Activity
+                    // Activity — card style matching People tab rows
                     if !activity.isEmpty {
-                        Button { withAnimation(.smooth(duration: 0.2)) { showActivity.toggle() } } label: {
-                            HStack {
-                                Text("Activity").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary).tracking(0.3)
-                                Spacer()
-                                Image(systemName: showActivity ? "chevron.up" : "chevron.down").font(.system(size: 10, weight: .semibold)).foregroundStyle(.quaternary)
-                            }
+                        HStack {
+                            Text("ACTIVITY").font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.secondary).tracking(0.5)
+                            Spacer()
+                            Text("\(activity.count)").font(.system(size: 11)).foregroundStyle(.quaternary)
                         }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 8)
+                        .padding(.horizontal, 16).padding(.top, 24).padding(.bottom, 6)
 
-                        if showActivity {
-                            VStack(spacing: 0) {
-                                ForEach(activity.prefix(10)) { event in
-                                    activityRow(event)
-                                }
+                        LazyVStack(spacing: 4) {
+                            ForEach(activity.prefix(8)) { event in
+                                activityCard(event)
                             }
-                            .background(Color.surfaceMuted.opacity(0.2))
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                            .padding(.horizontal, 16)
                         }
+                        .padding(.horizontal, 16)
                     }
 
                     // Error
                     if let error {
                         Text(error).font(Typo.meta).foregroundStyle(Color.flagged)
-                            .padding(.horizontal, 20).padding(.top, 12)
+                            .padding(.horizontal, 16).padding(.top, 12)
                     }
 
                     // Leave workspace
@@ -250,29 +243,24 @@ struct FleetTabView: View {
                             await checkConnection()
                         }
                     } label: {
-                        VStack(spacing: 3) {
-                            Text("Leave Workspace").font(Typo.meta).foregroundStyle(Color.flagged)
-                            if isCollaborator {
-                                Text("All synced data will be removed").font(.system(size: 10)).foregroundStyle(.secondary)
-                            }
-                        }
+                        Text("Leave Workspace").font(Typo.meta).foregroundStyle(Color.flagged)
                     }
-                    .padding(.top, 28).padding(.bottom, 40)
+                    .padding(.top, 28).padding(.bottom, 80)
                 }
             }
             .background(Color.surface.ignoresSafeArea())
             .refreshable { await fullRefresh() }
     }
 
-    // MARK: - Vessel Row
+    // MARK: - Vessel Card (identical to Vessels tab)
 
-    private func vesselRow(_ wv: WorkspaceVessel, localVessel: Vessel?) -> some View {
-        let crew = localVessel.map { vm.checksForVessel($0.id) } ?? []
-        let crewPassed = crew.filter { $0.status == .passed }.count
+    private func vesselCard(_ wv: WorkspaceVessel, localVessel: Vessel?) -> some View {
+        let seafarers = localVessel.map { vm.checksForVessel($0.id) } ?? []
         let compliance = localVessel.map { vm.complianceChecksForVessel($0.id) } ?? []
+        let crewPassed = seafarers.filter { $0.status == .passed }.count
         let compPassed = compliance.filter { $0.status == .passed }.count
-        let hasFlag = crew.contains { $0.status == .failed } || compliance.contains { $0.status == .failed }
-        let hasWarning = !hasFlag && (crew.contains { $0.status == .requiresReview } || compliance.contains { $0.status == .requiresReview })
+        let hasFlag = seafarers.contains { $0.status == .failed } || compliance.contains { $0.status == .failed }
+        let hasWarning = !hasFlag && (seafarers.contains { $0.status == .requiresReview } || compliance.contains { $0.status == .requiresReview })
 
         return WalletVesselCard(
             vesselName: wv.vesselName,
@@ -281,14 +269,13 @@ struct FleetTabView: View {
             flagState: localVessel?.flagState ?? "",
             imoNumber: wv.vesselImo,
             photoData: localVessel?.photoFilename.flatMap { vm.loadDocumentImage(filename: $0) },
-            crewCount: crew.count,
+            crewCount: seafarers.count,
             crewPassed: crewPassed,
             complianceCount: compliance.count,
             compliancePassed: compPassed,
             hasFlag: hasFlag,
             hasWarning: hasWarning
         )
-        .padding(.horizontal, 16)
         .contextMenu {
             if !isCollaborator {
                 Button { Task { await pushVessel(wv) } } label: { Label("Push Changes", systemImage: "arrow.up.circle") }
@@ -305,27 +292,32 @@ struct FleetTabView: View {
         }
     }
 
-    // MARK: - Activity Row
+    // MARK: - Activity Card (matches People tab row style)
 
-    private func activityRow(_ event: ActivityEvent) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Circle().fill(Color.surfaceMuted).frame(width: 26, height: 26)
-                .overlay { Text(String(event.agentName.prefix(1)).uppercased()).font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary) }
+    private func activityCard(_ event: ActivityEvent) -> some View {
+        HStack(spacing: 14) {
+            Circle().fill(Color.surfaceMuted).frame(width: 36, height: 36)
+                .overlay { Text(String(event.agentName.prefix(1)).uppercased()).font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary) }
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(event.agentName) \(event.action.replacingOccurrences(of: "_", with: " "))")
-                    .font(.system(size: 12)).lineLimit(1)
-                if !event.entityName.isEmpty {
-                    Text(event.entityName).font(.system(size: 11)).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(event.agentName).font(.system(size: 14, weight: .medium)).lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(event.action.replacingOccurrences(of: "_", with: " "))
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                    if !event.entityName.isEmpty {
+                        Text("·").foregroundStyle(.quaternary)
+                        Text(event.entityName).font(.system(size: 11)).foregroundStyle(.tertiary)
+                    }
                 }
             }
-
             Spacer()
-
             Text(event.createdAt.suffix(8).prefix(5))
-                .font(.system(size: 10, design: .monospaced)).foregroundStyle(.quaternary)
+                .font(.system(size: 10, design: .monospaced)).foregroundStyle(Color.secondary.opacity(0.5))
         }
-        .padding(.horizontal, 14).padding(.vertical, 8)
+        .padding(.horizontal, 16).padding(.vertical, 12)
+        .background(Color.surfaceRaised)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .shadow(color: .black.opacity(0.04), radius: 4, y: 2)
     }
 
     // MARK: - Actions
