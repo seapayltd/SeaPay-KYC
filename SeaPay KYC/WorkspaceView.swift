@@ -251,129 +251,189 @@ struct FleetTabView: View {
             .refreshable { await fullRefresh() }
     }
 
-    // MARK: - Wallet Card Stack (Apple Wallet style)
+    // MARK: - Apple Wallet Card Stack
 
-    private let cardPeekHeight: CGFloat = 44  // How much of each stacked card peeks out
-    private let cardFullHeight: CGFloat = 170  // Full card height when expanded
+    private let peekHeight: CGFloat = 32  // Strip visible per stacked card
 
+    @ViewBuilder
     private var walletStack: some View {
-        let isExpanded = expandedVesselId != nil
-
-        return VStack(spacing: 0) {
-            ForEach(Array(workspaceVessels.enumerated()), id: \.element.id) { index, wv in
-                let isThis = expandedVesselId == wv.vesselId
-                let lv = vm.vessels.first(where: { $0.id == wv.vesselId })
-
-                Button {
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
-                        if expandedVesselId == wv.vesselId {
-                            expandedVesselId = nil  // Collapse
-                        } else {
-                            expandedVesselId = wv.vesselId  // Expand this
+        if expandedVesselId != nil {
+            // OPENED STATE — single card fills the space, X to close
+            if let wv = workspaceVessels.first(where: { $0.vesselId == expandedVesselId }),
+               let lv = vm.vessels.first(where: { $0.id == wv.vesselId }) {
+                VStack(spacing: 16) {
+                    // Close button row
+                    HStack {
+                        Button {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { expandedVesselId = nil }
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 28)).foregroundStyle(.secondary)
                         }
+                        Spacer()
                     }
-                } label: {
-                    walletCard(wv, localVessel: lv, expanded: isThis)
-                }
-                .buttonStyle(.plain)
-                .zIndex(isThis ? 100 : Double(workspaceVessels.count - index))
-                .offset(y: isExpanded && !isThis ? CGFloat(index) * cardPeekHeight : 0)
-                .opacity(isExpanded && !isThis ? 0.6 : 1)
+                    .padding(.horizontal, 16)
 
-                // Show NavigationLink when expanded
-                if isThis, let lv {
+                    // Full card
+                    walletCardFull(wv, vessel: lv)
+                        .padding(.horizontal, 16)
+
+                    // Open vessel button
                     NavigationLink { VesselDetailView(vm: vm, vessel: lv) } label: {
-                        HStack {
-                            Text("Open \(lv.name)").font(.system(size: 14, weight: .semibold))
-                            Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold))
-                        }
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(Color.surfaceMuted)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .padding(.horizontal, 16).padding(.top, 8)
+                        Text(lv.name)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity).padding(.vertical, 14)
+                            .background(Color.surfaceMuted)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
                     }
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .padding(.horizontal, 16)
+                }
+                .transition(.opacity)
+            }
+        } else {
+            // STACKED STATE — cards overlap, only name strip peeks
+            VStack(spacing: -(peekHeight + 4)) {
+                ForEach(Array(workspaceVessels.enumerated()), id: \.element.id) { index, wv in
+                    let lv = vm.vessels.first(where: { $0.id == wv.vesselId })
+
+                    Button {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                            expandedVesselId = wv.vesselId
+                        }
+                    } label: {
+                        walletCardCollapsed(wv, vessel: lv)
+                    }
+                    .buttonStyle(.plain)
+                    .zIndex(Double(workspaceVessels.count - index))
+                    .contextMenu {
+                        if !isCollaborator {
+                            Button { Task { await pushVessel(wv) } } label: { Label("Push Changes", systemImage: "arrow.up.circle") }
+                        }
+                        Button { Task { await pullWithReview(wv) } } label: { Label("Pull Latest", systemImage: "arrow.down.circle") }
+                        Divider()
+                        Button { downloadPackage(wv) } label: { Label("Download Package", systemImage: "square.and.arrow.down") }
+                        if !isCollaborator {
+                            Divider()
+                            Button(role: .destructive) {
+                                Task { try? await CollaborationService.shared.removeVesselFromWorkspace(vesselId: wv.vesselId); await refreshMetadata() }
+                            } label: { Label("Remove", systemImage: "minus.circle") }
+                        }
+                    }
                 }
             }
+            .padding(.horizontal, 16)
+            .transition(.opacity)
         }
-        .padding(.horizontal, isExpanded ? 0 : 0)
     }
 
-    // Full-width wallet card
-    private func walletCard(_ wv: WorkspaceVessel, localVessel: Vessel?, expanded: Bool) -> some View {
-        let crew = localVessel.map { vm.checksForVessel($0.id) } ?? []
-        let crewPassed = crew.filter { $0.status == .passed }.count
-        let photoData = localVessel?.photoFilename.flatMap { vm.loadDocumentImage(filename: $0) }
-        let scenario = wv.fleetScenario
-        let hasFlag = crew.contains { $0.status == .failed }
+    // COLLAPSED: full-width card showing just the name strip + vessel color
+    private func walletCardCollapsed(_ wv: WorkspaceVessel, vessel: Vessel?) -> some View {
+        let photoData = vessel?.photoFilename.flatMap { vm.loadDocumentImage(filename: $0) }
+        let hasFlag = vessel.map { vm.checksForVessel($0.id).contains { $0.status == .failed } } ?? false
 
-        return VStack(spacing: 0) {
-            // Card header (always visible — the peek area)
+        return ZStack(alignment: .top) {
+            // Card body (mostly hidden behind the card above)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(photoData != nil ? Color.black : Color.surfaceRaised)
+                .frame(height: 180)
+                .shadow(color: .black.opacity(0.08), radius: 6, y: 3)
+
+            // Photo peek (subtle)
+            if let data = photoData, let img = UIImage(data: data) {
+                Image(uiImage: img).resizable().scaledToFill()
+                    .frame(height: 180)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay {
+                        LinearGradient(colors: [.black.opacity(0.5), .clear, .clear], startPoint: .top, endPoint: .bottom)
+                    }
+            }
+
+            // Name strip at top
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(wv.vesselName)
-                        .font(.system(size: expanded ? 20 : 15, weight: .bold))
-                        .foregroundStyle(photoData != nil && expanded ? .white : .primary)
-                        .lineLimit(1)
-                    if expanded {
+                Text(wv.vesselName)
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(photoData != nil ? .white : .primary)
+                    .lineLimit(1)
+                Spacer()
+                if hasFlag {
+                    Circle().fill(Color.flagged).frame(width: 7, height: 7)
+                }
+            }
+            .padding(.horizontal, 16).padding(.top, 10)
+        }
+    }
+
+    // EXPANDED: full credit-card-ratio vessel card
+    private func walletCardFull(_ wv: WorkspaceVessel, vessel: Vessel) -> some View {
+        let crew = vm.checksForVessel(vessel.id)
+        let crewPassed = crew.filter { $0.status == .passed }.count
+        let photoData = vessel.photoFilename.flatMap { vm.loadDocumentImage(filename: $0) }
+        let scenario = wv.fleetScenario
+
+        return ZStack {
+            // Background
+            if let data = photoData, let img = UIImage(data: data) {
+                Image(uiImage: img).resizable().scaledToFill()
+                    .frame(height: 200).clipped()
+                    .overlay {
+                        LinearGradient(colors: [.clear, .black.opacity(0.6)], startPoint: .top, endPoint: .bottom)
+                    }
+            } else {
+                LinearGradient(colors: [Color(.systemGray4), Color(.systemGray5)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    .frame(height: 200)
+                    .overlay {
+                        Image(systemName: vessel.vesselType?.icon ?? "ferry")
+                            .font(.system(size: 44)).foregroundStyle(.white.opacity(0.1))
+                    }
+            }
+
+            // Content overlay
+            VStack {
+                // Top: name + type
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(vessel.name)
+                            .font(.system(size: 22, weight: .bold))
+                            .foregroundStyle(photoData != nil ? .white : .primary)
                         HStack(spacing: 6) {
-                            if let vt = localVessel?.vesselType {
-                                Text(vt.rawValue).font(.system(size: 11))
-                            }
-                            if let f = localVessel?.flagState, !f.isEmpty {
-                                Text("·"); Text(f)
-                            }
+                            if let vt = vessel.vesselType { Text(vt.rawValue) }
+                            if !vessel.flagState.isEmpty { Text("·"); Text(vessel.flagState) }
                         }
                         .font(.system(size: 11))
-                        .foregroundStyle(photoData != nil ? .white.opacity(0.7) : .secondary)
+                        .foregroundStyle(photoData != nil ? .white.opacity(0.65) : .secondary)
+                    }
+                    Spacer()
+                    if let s = scenario {
+                        Text(s.shortName).font(.system(size: 10, weight: .semibold))
+                            .padding(.horizontal, 8).padding(.vertical, 3)
+                            .background(.ultraThinMaterial).clipShape(Capsule())
                     }
                 }
+
                 Spacer()
-                if !expanded {
-                    if hasFlag {
-                        Circle().fill(Color.flagged).frame(width: 8, height: 8)
-                    }
-                    if let s = scenario {
-                        Text(s.shortName).font(.system(size: 10, weight: .medium))
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Color.surfaceMuted).clipShape(Capsule())
-                    }
-                } else {
-                    HStack(spacing: 4) {
-                        Image(systemName: "person.2").font(.system(size: 10))
-                        Text("\(crewPassed)/\(crew.count)")
+
+                // Bottom: stats
+                HStack {
+                    HStack(spacing: 5) {
+                        Image(systemName: "person.2").font(.system(size: 11))
+                        Text("\(crewPassed)/\(crew.count) crew")
                             .font(.system(size: 12, weight: .semibold, design: .rounded))
                     }
-                    .foregroundStyle(photoData != nil ? .white : (crewPassed == crew.count ? Color.clear_ : Color.review))
-                }
-            }
-            .padding(.horizontal, 16).padding(.vertical, expanded ? 14 : 12)
-
-            // Expanded content (photo + details)
-            if expanded {
-                ZStack {
-                    if let data = photoData, let img = UIImage(data: data) {
-                        Image(uiImage: img).resizable().scaledToFill()
-                            .frame(height: 120).clipped()
-                            .overlay {
-                                LinearGradient(colors: [.black.opacity(0.3), .clear], startPoint: .bottom, endPoint: .top)
-                            }
-                    } else {
-                        Color.surfaceMuted.frame(height: 80)
-                            .overlay {
-                                Image(systemName: localVessel?.vesselType?.icon ?? "ferry")
-                                    .font(.system(size: 30)).foregroundStyle(.secondary.opacity(0.3))
-                            }
+                    .foregroundStyle(photoData != nil ? .white.opacity(0.8) : .secondary)
+                    Spacer()
+                    if !vessel.imoNumber.isEmpty {
+                        Text("IMO \(vessel.imoNumber)")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(photoData != nil ? .white.opacity(0.4) : Color.secondary.opacity(0.5))
                     }
                 }
             }
+            .padding(16)
         }
-        .background(expanded && photoData != nil ? Color.black : Color.surfaceRaised)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .shadow(color: .black.opacity(expanded ? 0.12 : 0.06), radius: expanded ? 12 : 6, y: expanded ? 6 : 3)
-        .padding(.horizontal, 16)
+        .frame(height: 200)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .shadow(color: .black.opacity(0.15), radius: 12, y: 6)
         .contextMenu {
             if !isCollaborator {
                 Button { Task { await pushVessel(wv) } } label: { Label("Push Changes", systemImage: "arrow.up.circle") }
