@@ -562,6 +562,14 @@ struct SettingsSheet: View {
 
                     // MARK: Data
                     settingsSection("Data") {
+                        if !vm.offlineQueue.isEmpty {
+                            NavigationLink {
+                                OfflineQueueView(vm: vm)
+                            } label: {
+                                settingsActionRow(icon: "arrow.triangle.2.circlepath", label: "Offline Queue", detail: "\(vm.offlineQueue.count) pending")
+                            }
+                            Divider().padding(.leading, 44)
+                        }
                         NavigationLink {
                             TransferHistoryView(vm: vm)
                         } label: {

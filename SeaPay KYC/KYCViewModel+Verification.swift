@@ -25,7 +25,7 @@ extension KYCViewModel {
         let wf = AppConfiguration.workflowID
         guard !wf.isEmpty else { throw AppError.missingRequiredField("Workflow ID — configure it in Settings") }
 
-        let api = VerificationAPIService.shared
+        let api = services.api
         APIUsageTracker.track(.session)
         let session = try await api.createSession(workflowID: wf, vendorData: checks[i].customerName)
 
@@ -65,7 +65,7 @@ extension KYCViewModel {
         checks[i].status = .inProgress; saveChecks()
         _ = saveImages(checkId: checkId, front: frontImage, back: backImage)
 
-        let api = VerificationAPIService.shared
+        let api = services.api
         APIUsageTracker.track(.idScan)
         let (idResp, idRaw) = try await api.verifyID(frontImage: frontImage, backImage: backImage, vendorData: checkId)
         let id = idResp.idVerification
@@ -109,7 +109,7 @@ extension KYCViewModel {
 
         let iso2 = toISO2(checks[i].nationality) ?? toISO2(checks[i].documentType)
         let opts = VerificationAPIService.AMLOptions(includeAdverseMedia: true, includeMonitoring: monitoring)
-        let api = VerificationAPIService.shared
+        let api = services.api
         APIUsageTracker.track(.amlScreening)
         let (amlResp, amlRaw) = try await api.screenAML(
             fullName: name, dateOfBirth: checks[i].dateOfBirth,
@@ -159,7 +159,7 @@ extension KYCViewModel {
         checks[i].documentImagePaths = (checks[i].documentImagePaths ?? []) + [fp.lastPathComponent]
 
         onProgress("Verifying address...")
-        let api = VerificationAPIService.shared
+        let api = services.api
         APIUsageTracker.track(.poaCheck)
         let (resp, raw) = try await api.verifyAddress(document: documentImage, expectedName: expectedName, expectedAddress: expectedAddress, vendorData: checkId)
         let json = String(data: raw, encoding: .utf8) ?? ""
@@ -201,7 +201,7 @@ extension KYCViewModel {
     // MARK: - Session Polling
 
     func pollSessionDecision(checkId: String, sessionId: String) async throws -> SessionDecision {
-        let api = VerificationAPIService.shared
+        let api = services.api
         let (decision, rawData) = try await api.getSessionDecision(sessionId: sessionId)
         let rawString = String(data: rawData, encoding: .utf8)
 

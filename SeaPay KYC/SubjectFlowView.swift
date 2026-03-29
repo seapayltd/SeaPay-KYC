@@ -183,6 +183,8 @@ struct SubjectFlowView: View {
                         Text("I consent to identity verification").font(Typo.body)
                     }
                     .tint(.primary)
+                    .accessibilityLabel("Consent to identity verification")
+                    .accessibilityHint(consent ? "Consent granted. Double tap to withdraw." : "Double tap to grant consent.")
 
                     // Data privacy expandable
                     Button { withAnimation(.smooth(duration: 0.2)) { showDataInfo.toggle() } } label: {

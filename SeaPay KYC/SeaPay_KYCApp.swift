@@ -40,6 +40,7 @@ struct SeaPay_KYCApp: App {
     init() {
         // Lightweight only — heavy work deferred to .onAppear
         AgentProfile.migrateIfNeeded()
+        DataMigration.runIfNeeded()
     }
 
     private var preferredColorScheme: ColorScheme? {
@@ -170,7 +171,22 @@ struct SeaPay_KYCApp: App {
                     TransferImportSheet(vm: vm, packageURL: url)
                 }
             }
+            #if targetEnvironment(macCatalyst)
+            .onAppear { MacWindowHelper.configureWindow() }
+            #endif
         }
+        #if targetEnvironment(macCatalyst)
+        .commands {
+            CommandGroup(replacing: .newItem) {
+                Button("New Vessel") { /* handled by HomeView keyboard shortcut */ }
+                    .keyboardShortcut("n", modifiers: .command)
+            }
+            CommandGroup(after: .sidebar) {
+                Button("Refresh") { Task { await vm.refreshPendingSessions() } }
+                    .keyboardShortcut("r", modifiers: .command)
+            }
+        }
+        #endif
     }
 }
 

@@ -26,6 +26,7 @@ class KYCViewModel: ObservableObject {
     @Published var isOnline = true
     @Published var pollingError: String?
     @Published var transferLog: [TransferRecord] = []
+    let offlineQueue = OfflineQueue.shared
 
     // GDPR
     @Published var consentRecords: [ConsentRecord] = []
@@ -65,7 +66,10 @@ class KYCViewModel: ObservableObject {
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true); return d
     }
 
-    init() {
+    let services: ServiceContainer
+
+    init(services: ServiceContainer = .shared) {
+        self.services = services
         netMonitor.pathUpdateHandler = { [weak self] path in
             Task { @MainActor [weak self] in self?.isOnline = path.status == .satisfied }
         }
@@ -109,6 +113,8 @@ class KYCViewModel: ObservableObject {
                 self?.consentRecords = loadedConsent
                 self?.auditLog = loadedAudit
                 self?.startPollingPendingSessions()
+                self?.offlineQueue.startObserving(vm: self!)
+                self?.offlineQueue.clearStale()
             }
         }
     }
@@ -184,9 +190,10 @@ class KYCViewModel: ObservableObject {
         deferredBackupTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             guard !Task.isCancelled, let self else { return }
-            NotificationService.shared.rescheduleAll(checks: self.checks, vessels: self.vessels)
-            CloudBackupService.shared.backup(checksFile: self.checksFile, vesselsFile: self.vesselsFile, imagesDir: self.imagesDir)
+            self.services.notifications.rescheduleAll(checks: self.checks, vessels: self.vessels)
+            self.services.cloudBackup.backup(checksFile: self.checksFile, vesselsFile: self.vesselsFile, imagesDir: self.imagesDir)
             self.updateWidgetData()
+            AppBadge.update(checks: self.checks, vessels: self.vessels)
         }
     }
 

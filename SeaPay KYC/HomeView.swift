@@ -139,14 +139,25 @@ struct HomeView: View {
         NavigationStack {
             ZStack(alignment: .bottomTrailing) {
                 VStack(spacing: 0) {
-                    // Offline
+                    // Offline + queue
                     if !vm.isOnline {
                         HStack(spacing: 8) {
                             Image(systemName: "wifi.slash").font(.system(size: 11))
                             Text("Offline").font(Typo.meta)
+                            if !vm.offlineQueue.isEmpty {
+                                Text("\u{2022} \(vm.offlineQueue.count) queued").font(Typo.meta).opacity(0.8)
+                            }
                         }
                         .foregroundStyle(.white).frame(maxWidth: .infinity)
                         .padding(.vertical, 6).background(Color.secondary.opacity(0.7))
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    } else if vm.offlineQueue.isProcessing {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.mini).tint(.white)
+                            Text("Syncing \(vm.offlineQueue.count) queued actions...").font(Typo.meta)
+                        }
+                        .foregroundStyle(.white).frame(maxWidth: .infinity)
+                        .padding(.vertical, 6).background(Color.clear_.opacity(0.7))
                         .transition(.move(edge: .top).combined(with: .opacity))
                     }
 
@@ -212,6 +223,11 @@ struct HomeView: View {
                     }
                 }
             }
+            // Keyboard shortcuts (Mac + iPad with keyboard)
+            .onAddVessel { showAddVessel = true }
+            .onOpenSettings { showSettings = true }
+            .onExport { csvURL = vm.generateCSV(vesselId: nil); if csvURL != nil { showCSVExport = true } }
+            .onRefresh { Task { await vm.refreshPendingSessions() } }
         }
     }
 

@@ -270,6 +270,8 @@ struct VerificationSheet: View {
                             Text(c.displayName).font(Typo.hero)
                             StatusBadge(status: c.status)
                         }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("\(c.displayName), \(c.status.accessibilityDescription)")
                         // Role pill (tappable menu)
                         HStack(spacing: 6) {
                             Menu {

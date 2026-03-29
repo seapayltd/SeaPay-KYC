@@ -223,6 +223,9 @@ private struct DocRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(item.document?.accessibilityDescription ?? "\(item.type.displayName), \(item.required ? "required" : "optional"), \(hasDoc ? "added" : "missing")")
+        .accessibilityHint(hasDoc ? "Double tap to view" : "Double tap to add")
     }
 }
 

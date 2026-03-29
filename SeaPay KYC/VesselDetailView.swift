@@ -517,6 +517,9 @@ struct VesselDetailView: View {
             StatusBadge(status: check.status)
         }
         .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(check.accessibilityDescription)
+        .accessibilityHint("Double tap to view details")
     }
 
     private func avatar(_ check: KYCCheck, size: CGFloat) -> some View {
