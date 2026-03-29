@@ -20,6 +20,7 @@ struct HomeView: View {
     @State private var showBatchInvite = false
     @State private var showBatchImport = false
     @State private var showCSVExport = false
+    @State private var showAddMenu = false
     @State private var csvURL: URL?
     @State private var searchText = ""
     @State private var tab = UserDefaults.standard.bool(forKey: "isCollaborator") ? 2 : 0
@@ -172,28 +173,34 @@ struct HomeView: View {
             .tabItem { Label("People", systemImage: "person.3") }
             .tag(1)
 
-            // Add (agents only)
-            if !isCollaborator {
-                Text("") // Placeholder — intercepted by onChange
-                    .tabItem { Label("Add", systemImage: "plus.circle.fill") }
-                    .tag(99)
-            }
-
             // Fleet
             NavigationStack {
                 FleetTabView(vm: vm)
             }
             .tabItem { Label("Fleet", systemImage: "person.3.sequence") }
             .tag(2)
+
+            // Add (agents only — rightmost, opens action sheet)
+            if !isCollaborator {
+                Text("")
+                    .tabItem { Label("Add", systemImage: "plus") }
+                    .tag(99)
+            }
         }
         .onChange(of: tab) { _, newTab in
             if newTab == 99 {
-                // "Add" tab tapped — show add menu, revert to previous tab
                 tab = previousTab
-                showAddVessel = true
+                showAddMenu = true
             } else {
                 previousTab = newTab
             }
+        }
+        .sheet(isPresented: $showAddMenu) {
+            AddActionSheet(vm: vm, onAddVessel: { showAddMenu = false; showAddVessel = true },
+                           onAddCrew: { vessel in showAddMenu = false; selectedVesselForAdd = vessel },
+                           onBatchInvite: { showAddMenu = false; showBatchInvite = true },
+                           onImportCSV: { showAddMenu = false; showBatchImport = true })
+                .presentationDetents([.medium])
         }
         .sheet(item: $activeCheck) { VerificationSheet(vm: vm, check: $0) }
         .sheet(item: $inviteCheck) { InviteSheet(vm: vm, check: $0) }
@@ -579,6 +586,80 @@ struct HomeView: View {
             $0.name.localizedCaseInsensitiveContains(searchText) ||
             $0.imoNumber.localizedCaseInsensitiveContains(searchText)
         }
+    }
+}
+
+// MARK: - Add Action Sheet
+
+struct AddActionSheet: View {
+    @ObservedObject var vm: KYCViewModel
+    var onAddVessel: () -> Void
+    var onAddCrew: (Vessel) -> Void
+    var onBatchInvite: () -> Void
+    var onImportCSV: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Handle
+            Capsule().fill(Color.secondary.opacity(0.3))
+                .frame(width: 36, height: 5).padding(.top, 8)
+
+            Text("Add New").font(.system(size: 17, weight: .semibold)).padding(.top, 16).padding(.bottom, 4)
+
+            ScrollView {
+                VStack(spacing: 8) {
+                    // Primary actions
+                    addRow(icon: "ferry", title: "Add Vessel", subtitle: "Register a new vessel or scan a Certificate of Registry") {
+                        onAddVessel()
+                    }
+
+                    if !vm.vessels.isEmpty {
+                        ForEach(vm.vessels) { vessel in
+                            addRow(icon: "person.badge.plus", title: "Add Crew to \(vessel.name)", subtitle: "Add and verify a crew member") {
+                                onAddCrew(vessel)
+                            }
+                        }
+                    }
+
+                    Divider().padding(.vertical, 4).padding(.horizontal, 20)
+
+                    addRow(icon: "person.2.badge.plus", title: "Batch Invite", subtitle: "Send verification links to multiple crew at once") {
+                        onBatchInvite()
+                    }
+
+                    addRow(icon: "square.and.arrow.down", title: "Import Crew CSV", subtitle: "Bulk import crew roster from a spreadsheet") {
+                        onImportCSV()
+                    }
+                }
+                .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 24)
+            }
+        }
+        .background(Color.surface)
+    }
+
+    private func addRow(icon: String, title: String, subtitle: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: icon)
+                    .font(.system(size: 16))
+                    .foregroundStyle(.primary)
+                    .frame(width: 36, height: 36)
+                    .background(Color.surfaceMuted)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.system(size: 14, weight: .medium)).foregroundStyle(.primary)
+                    Text(subtitle).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
+                }
+                Spacer()
+                Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.quaternary)
+            }
+            .padding(12)
+            .background(Color.surfaceRaised)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 }
 
