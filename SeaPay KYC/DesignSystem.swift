@@ -12,21 +12,13 @@ import SwiftUI
 
 enum BrandFont {
     private static let postScriptName = "IvyMode-Regular"
-    private static var registered = false
 
-    static func registerIfNeeded() {
-        guard !registered else { return }; registered = true
-        for name in ["ivy-mode-regular.ttf", "IvyMode-Regular.ttf", "ivy-mode-regular.otf", "IvyMode-Regular.otf"] {
-            if let url = Bundle.main.url(forResource: name, withExtension: nil) ?? Bundle.main.url(forResource: name.replacingOccurrences(of: ".ttf", with: ""), withExtension: "ttf") {
-                var err: Unmanaged<CFError>?
-                if CTFontManagerRegisterFontsForURL(url as CFURL, .process, &err) { return }
-            }
-        }
-    }
+    // Font is registered automatically via UIAppFonts in Info.plist — no manual CTFontManager needed
+    static func registerIfNeeded() { /* no-op — UIAppFonts handles registration */ }
 
-    private static var ok: Bool { registerIfNeeded(); return UIFont(name: postScriptName, size: 12) != nil }
+    private static var ok: Bool { UIFont(name: postScriptName, size: 12) != nil }
     static func brand(_ size: CGFloat) -> Font { ok ? .custom(postScriptName, size: size) : .system(size: size) }
-    static func uiFont(size: CGFloat) -> UIFont { registerIfNeeded(); return UIFont(name: postScriptName, size: size) ?? .systemFont(ofSize: size) }
+    static func uiFont(size: CGFloat) -> UIFont { UIFont(name: postScriptName, size: size) ?? .systemFont(ofSize: size) }
 }
 
 // MARK: - Flow Layout
