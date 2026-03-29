@@ -548,51 +548,41 @@ struct ImagePreviewView: View {
     @State private var showShare = false
 
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-
-            // Centered image
-            VStack {
-                Spacer()
+        Color.black
+            .ignoresSafeArea()
+            .overlay {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
-                    .padding(.horizontal, 2)
-                Spacer()
+                    .padding(1)
             }
-
-            // Floating controls
-            VStack {
-                HStack {
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 34, height: 34)
-                            .background(Color.white.opacity(0.15))
-                            .clipShape(Circle())
-                    }
-                    Spacer()
-                    Button { showShare = true } label: {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 34, height: 34)
-                            .background(Color.white.opacity(0.15))
-                            .clipShape(Circle())
-                    }
+            .overlay(alignment: .topLeading) {
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 32, height: 32)
+                        .background(Color.white.opacity(0.18))
+                        .clipShape(Circle())
                 }
-                .padding(.horizontal, 16).padding(.top, 54)
-                Spacer()
+                .padding(.leading, 16).padding(.top, 56)
             }
-        }
-        .ignoresSafeArea()
-        .statusBarHidden()
-        .sheet(isPresented: $showShare) {
-            // Share image data directly — avoids all sandbox/URL issues
-            if let data = image.jpegData(compressionQuality: 0.95) {
-                ActivityView(items: [data])
+            .overlay(alignment: .topTrailing) {
+                Button { showShare = true } label: {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 32, height: 32)
+                        .background(Color.white.opacity(0.18))
+                        .clipShape(Circle())
+                }
+                .padding(.trailing, 16).padding(.top, 56)
             }
-        }
+            .statusBarHidden()
+            .sheet(isPresented: $showShare) {
+                if let data = image.jpegData(compressionQuality: 0.95) {
+                    ActivityView(items: [data])
+                }
+            }
     }
 }
