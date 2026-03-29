@@ -13,6 +13,20 @@ private let reportLogger = Logger(subsystem: "com.seapay.kyc", category: "Report
 
 extension KYCViewModel {
 
+    // MARK: - Batch Summary Report (condensed all-crew overview)
+
+    func generateBatchSummary(vesselId: String) -> URL? {
+        guard let vessel = vessels.first(where: { $0.id == vesselId }) else { return nil }
+        let crew = checksForVessel(vesselId)
+        guard !crew.isEmpty else { return nil }
+        let data = ReportGenerator.generateBatchSummary(vessel: vessel, checks: crew)
+        let safeName = vessel.name.replacingOccurrences(of: " ", with: "_")
+        let name = "BatchSummary_\(safeName)_\(Date().formatted(.iso8601.year().month().day())).pdf"
+        let url = reportsDir.appendingPathComponent(name)
+        try? data.write(to: url)
+        return url
+    }
+
     // MARK: - Individual PDF Report
 
     func generateReport(checkId: String) -> URL? {

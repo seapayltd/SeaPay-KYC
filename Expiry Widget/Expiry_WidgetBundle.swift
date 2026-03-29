@@ -10,5 +10,6 @@ import SwiftUI
 struct Expiry_WidgetBundle: WidgetBundle {
     var body: some Widget {
         Expiry_Widget()
+        VerificationLiveActivity()
     }
 }

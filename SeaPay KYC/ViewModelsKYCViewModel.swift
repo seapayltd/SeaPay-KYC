@@ -622,6 +622,13 @@ class KYCViewModel: ObservableObject {
         #if DEBUG
         vmLogger.debug("Starting poll for \(checkId.prefix(8))")
         #endif
+
+        // Start Live Activity
+        if let check = checks.first(where: { $0.id == checkId }) {
+            let vesselName = check.vesselId.flatMap { vid in vessels.first { $0.id == vid }?.name } ?? ""
+            VerificationActivityManager.startActivity(checkId: checkId, subjectName: check.customerName, vesselName: vesselName)
+        }
+
         pollTimers[checkId] = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 await self?.pollOnce(checkId: checkId, sessionId: sessionId)
@@ -641,8 +648,20 @@ class KYCViewModel: ObservableObject {
         do {
             pollingError = nil
             let decision = try await pollSessionDecision(checkId: checkId, sessionId: sessionId)
+
+            // Update Live Activity
+            let s = decision.status.lowercased()
+            let stage = s == "approved" || s == "completed" ? 3 : (decision.idVerifications?.isEmpty == false ? (decision.aml?.isEmpty == false ? 2 : 1) : 0)
+            let statusText = stage == 0 ? "Waiting for subject" : stage == 1 ? "ID verified, screening..." : stage == 2 ? "AML complete" : "Verification complete"
+            if let check = checks.first(where: { $0.id == checkId }) {
+                let elapsed = Int(Date().timeIntervalSince(check.createdAt) / 60)
+                VerificationActivityManager.updateActivity(checkId: checkId, status: statusText, stage: stage, elapsedMinutes: elapsed)
+            }
+
             if isTerminalStatus(decision.status) {
                 stopPolling(checkId: checkId)
+                let final = s == "approved" || s == "completed" ? "Verified" : "Failed"
+                VerificationActivityManager.endActivity(checkId: checkId, finalStatus: final)
                 _ = generateReport(checkId: checkId)
             }
         } catch {

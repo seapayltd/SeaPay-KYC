@@ -542,6 +542,105 @@ enum ReportGenerator {
     private static func isExp(_ s: String) -> Bool { let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; return f.date(from: s).map { $0 < Date() } ?? false }
 
     // ═══════════════════════════════════════════
+    // MARK: - Batch Summary (condensed all-crew overview)
+    // ═══════════════════════════════════════════
+
+    static func generateBatchSummary(vessel: Vessel, checks: [KYCCheck]) -> Data {
+        let dateFmt = DateFormatter(); dateFmt.dateFormat = "dd MMM yyyy"
+        let seafarers = checks.filter { $0.entityType.category == .crew }.sorted { ($0.crewRank?.rawValue ?? "") < ($1.crewRank?.rawValue ?? "") }
+        let compliance = checks.filter { $0.entityType.category != .crew }
+        let passed = checks.filter { $0.status == .passed }.count
+        let failed = checks.filter { $0.status == .failed }.count
+        let review = checks.filter { $0.status == .requiresReview }.count
+        let pending = checks.count - passed - failed - review
+
+        let renderer = UIGraphicsPDFRenderer(bounds: pg)
+        return renderer.pdfData { ctx in
+            ctx.beginPage(); watermark()
+
+            // Header
+            black.setFill(); UIRectFill(CGRect(x: 0, y: 0, width: pg.width, height: 90))
+            txt("OceanCheck", pt(L, 22), BrandFont.uiFont(size: 24), white)
+            txt("VERIFICATION BATCH SUMMARY", pt(L, 54), .systemFont(ofSize: 8.5, weight: .bold), UIColor(white: 0.5, alpha: 1))
+            txtR("CONFIDENTIAL", 30, .systemFont(ofSize: 7, weight: .bold), UIColor(white: 0.4, alpha: 1))
+            txtR(dateFmt.string(from: Date()), 44, .systemFont(ofSize: 7), UIColor(white: 0.4, alpha: 1))
+
+            var y: CGFloat = 108
+
+            // Vessel
+            txt(vessel.name.uppercased(), pt(L, y), .systemFont(ofSize: 18, weight: .bold), black); y += 22
+            if !vessel.imoNumber.isEmpty {
+                txt("IMO \(vessel.imoNumber) \u{2022} \(vessel.flagState) \u{2022} \(vessel.portOfRegistry)", pt(L, y), .systemFont(ofSize: 8.5), mid); y += 16
+            }
+
+            // Summary stats
+            let stats = [
+                ("\(checks.count)", "Total", mid), ("\(passed)", "Clear", sG),
+                ("\(failed)", "Flagged", sR), ("\(review)", "Review", sA), ("\(pending)", "Pending", light)
+            ]
+            let sw = W / CGFloat(stats.count)
+            for (i, s) in stats.enumerated() {
+                let sx = L + sw * CGFloat(i)
+                txt(s.0, pt(sx + 4, y), .systemFont(ofSize: 20, weight: .bold), s.2)
+                txt(s.1, pt(sx + 4, y + 22), .systemFont(ofSize: 7.5), mid)
+            }
+            y += 44
+
+            // Crew table
+            if !seafarers.isEmpty {
+                ruleC.setFill(); UIRectFill(CGRect(x: L, y: y, width: W, height: 0.5)); y += 8
+                // Table header
+                bgAlt.setFill(); UIRectFill(CGRect(x: L, y: y, width: W, height: 16))
+                txt("Name", pt(L + 6, y + 2), .systemFont(ofSize: 7, weight: .bold), mid)
+                txt("Rank", pt(L + 160, y + 2), .systemFont(ofSize: 7, weight: .bold), mid)
+                txt("Nationality", pt(L + 260, y + 2), .systemFont(ofSize: 7, weight: .bold), mid)
+                txt("ID Expiry", pt(L + 340, y + 2), .systemFont(ofSize: 7, weight: .bold), mid)
+                txt("AML", pt(L + 410, y + 2), .systemFont(ofSize: 7, weight: .bold), mid)
+                txt("Status", pt(L + 455, y + 2), .systemFont(ofSize: 7, weight: .bold), mid)
+                y += 18
+
+                for (i, check) in seafarers.enumerated() {
+                    if y > pg.height - 50 { ctx.beginPage(); y = 48; watermark() }
+                    if i % 2 == 0 { bgAlt.setFill(); UIRectFill(CGRect(x: L, y: y, width: W, height: 14)) }
+                    let sc_ = sc(check.status)
+                    sc_.setFill(); UIRectFill(CGRect(x: L, y: y + 2, width: 3, height: 10))
+                    txt(check.displayName, pt(L + 8, y + 1), .systemFont(ofSize: 8), dark)
+                    txt(check.crewRank?.rawValue ?? "", pt(L + 160, y + 1), .systemFont(ofSize: 7.5), mid)
+                    txt(check.nationality ?? "", pt(L + 260, y + 1), .systemFont(ofSize: 7.5), mid)
+                    txt(check.expiryDate ?? "—", pt(L + 340, y + 1), .systemFont(ofSize: 7.5), mid)
+                    txt(check.amlStatus ?? "—", pt(L + 410, y + 1), .systemFont(ofSize: 7, weight: .medium), check.amlStatus == "Approved" ? sG : check.amlStatus == "Declined" ? sR : mid)
+                    txt(check.status == .passed ? "CLEAR" : check.status == .failed ? "FAIL" : check.status == .requiresReview ? "REVIEW" : "PENDING", pt(L + 455, y + 1), .systemFont(ofSize: 7, weight: .bold), sc_)
+                    y += 14
+                }
+            }
+            y += 8
+
+            // Compliance entities
+            if !compliance.isEmpty {
+                if y > pg.height - 80 { ctx.beginPage(); y = 48; watermark() }
+                ruleC.setFill(); UIRectFill(CGRect(x: L, y: y, width: W, height: 0.5)); y += 8
+                txt("OWNERSHIP & COMPLIANCE ENTITIES", pt(L, y), .systemFont(ofSize: 7.5, weight: .bold), mid); y += 14
+                for (i, check) in compliance.enumerated() {
+                    if y > pg.height - 50 { ctx.beginPage(); y = 48; watermark() }
+                    if i % 2 == 0 { bgAlt.setFill(); UIRectFill(CGRect(x: L, y: y, width: W, height: 14)) }
+                    let sc_ = sc(check.status)
+                    sc_.setFill(); UIRectFill(CGRect(x: L, y: y + 2, width: 3, height: 10))
+                    txt(check.displayName, pt(L + 8, y + 1), .systemFont(ofSize: 8), dark)
+                    txt(check.entityType.rawValue, pt(L + 200, y + 1), .systemFont(ofSize: 7.5), mid)
+                    txt(check.status == .passed ? "VERIFIED" : "PENDING", pt(L + 400, y + 1), .systemFont(ofSize: 7, weight: .bold), sc_)
+                    y += 14
+                }
+            }
+
+            // Footer
+            let fy = pg.height - 40
+            ruleC.setFill(); UIRectFill(CGRect(x: L, y: fy, width: W, height: 0.5))
+            txt("Generated by OceanCheck on \(dateFmt.string(from: Date())). This summary is for internal compliance use only.", pt(L, fy + 8), .systemFont(ofSize: 6.5), light)
+            txt("Agent: \(AgentProfile.current?.profileLine ?? "OceanCheck Agent")", pt(L, fy + 18), .systemFont(ofSize: 6.5), light)
+        }
+    }
+
+    // ═══════════════════════════════════════════
     // MARK: - Compliance Packet Cover Sheet
     // ═══════════════════════════════════════════
 
