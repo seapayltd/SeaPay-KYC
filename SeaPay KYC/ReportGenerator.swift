@@ -12,6 +12,7 @@ import UIKit
 import CoreImage
 import CryptoKit
 
+@MainActor
 enum ReportGenerator {
 
     // Palette
@@ -769,9 +770,10 @@ enum ReportGenerator {
             txt(vessel.name.uppercased(), pt(L, y), .systemFont(ofSize: 20, weight: .bold), black); y += 28
 
             let colW: CGFloat = (W - 20) / 2
+            let lM = L; let mC = mid; let dC = dark
             var ly = y, ry = y
-            func lRow(_ label: String, _ val: String) { txt(label, pt(L, ly), .systemFont(ofSize: 7, weight: .bold), mid); txt(val, pt(L + 70, ly), .systemFont(ofSize: 8), dark); ly += 14 }
-            func rRow(_ label: String, _ val: String) { let rx = L + colW + 20; txt(label, pt(rx, ry), .systemFont(ofSize: 7, weight: .bold), mid); txt(val, pt(rx + 70, ry), .systemFont(ofSize: 8), dark); ry += 14 }
+            func lRow(_ label: String, _ val: String) { txt(label, pt(lM, ly), .systemFont(ofSize: 7, weight: .bold), mC); txt(val, pt(lM + 70, ly), .systemFont(ofSize: 8), dC); ly += 14 }
+            func rRow(_ label: String, _ val: String) { let rx = lM + colW + 20; txt(label, pt(rx, ry), .systemFont(ofSize: 7, weight: .bold), mC); txt(val, pt(rx + 70, ry), .systemFont(ofSize: 8), dC); ry += 14 }
 
             lRow("IMO Number", vessel.imoNumber.isEmpty ? "—" : vessel.imoNumber)
             rRow("Call Sign", vessel.callSign.isEmpty ? "—" : vessel.callSign)
@@ -954,6 +956,8 @@ enum ReportGenerator {
             y += 12
 
             // Trust Roles (trustees, settlors, protectors, beneficiaries)
+            // Capture @MainActor statics locally for use in nonisolated PDF closure
+            let _L = L; let _dark = dark; let _mid = mid
             func renderTrustSection(title: String, persons: [Shareholder]?) {
                 guard let persons, !persons.isEmpty else { return }
                 y = fitC(y, 30, ctx, &pn, ref, edgeColor)
@@ -963,17 +967,17 @@ enum ReportGenerator {
                     let check = person.checkId.flatMap { cid in checks.first { $0.id == cid } }
                     let status = check?.status ?? .pending
                     let sColor = sc(status)
-                    sColor.setFill(); UIRectFill(CGRect(x: L, y: y + 2, width: 4, height: 12))
-                    txt(person.name, pt(L + 10, y), .systemFont(ofSize: 9, weight: .medium), dark)
+                    sColor.setFill(); UIRectFill(CGRect(x: _L, y: y + 2, width: 4, height: 12))
+                    txt(person.name, pt(_L + 10, y), .systemFont(ofSize: 9, weight: .medium), _dark)
                     if person.ownershipPercent > 0 {
-                        txt("\(String(format: "%.0f", person.ownershipPercent))%", pt(L + 200, y), .systemFont(ofSize: 9), mid)
+                        txt("\(String(format: "%.0f", person.ownershipPercent))%", pt(_L + 200, y), .systemFont(ofSize: 9), _mid)
                     }
                     let statusText = status == .passed ? "VERIFIED" : status == .failed ? "FAILED" : "PENDING"
                     txtR(statusText, y, .systemFont(ofSize: 8, weight: .bold), sColor)
                     y += 16
                     if let check, check.amlStatus != nil {
-                        txt("  AML: \(check.amlStatus ?? "—")", pt(L + 10, y), .systemFont(ofSize: 7.5), mid)
-                        if let score = check.amlScore { txt("Score: \(score)", pt(L + 120, y), .systemFont(ofSize: 7.5), mid) }
+                        txt("  AML: \(check.amlStatus ?? "—")", pt(_L + 10, y), .systemFont(ofSize: 7.5), _mid)
+                        if let score = check.amlScore { txt("Score: \(score)", pt(_L + 120, y), .systemFont(ofSize: 7.5), _mid) }
                         y += 12
                     }
                 }

@@ -126,7 +126,8 @@ struct ActivityEvent: Codable, Identifiable, Sendable {
 
 // MARK: - Collaboration Service
 
-actor CollaborationService {
+@MainActor
+final class CollaborationService {
     static let shared = CollaborationService()
 
     private let baseURL = "https://seapay.me/oceancheck/api"
@@ -160,7 +161,7 @@ actor CollaborationService {
     // MARK: - Workspace Management
 
     func createWorkspace(name: String) async throws -> WorkspaceInfo {
-        guard let profile = await MainActor.run(body: { AgentProfile.current }) else { throw CollabError.noProfile }
+        guard let profile = AgentProfile.current else { throw CollabError.noProfile }
 
         let body: [String: Any] = [
             "name": name,
@@ -178,7 +179,7 @@ actor CollaborationService {
     }
 
     func joinWorkspace(code: String) async throws -> WorkspaceInfo {
-        guard let profile = await MainActor.run(body: { AgentProfile.current }) else { throw CollabError.noProfile }
+        guard let profile = AgentProfile.current else { throw CollabError.noProfile }
 
         let body: [String: Any] = [
             "code": code.uppercased(),

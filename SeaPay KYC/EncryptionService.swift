@@ -9,7 +9,8 @@
 import Foundation
 import CryptoKit
 
-enum EncryptionService {
+// Explicitly nonisolated — all methods use thread-safe Keychain + CryptoKit
+enum EncryptionService: Sendable {
 
     private static let keychainAccount = "com.seapay.kyc.encryptionKey"
 
