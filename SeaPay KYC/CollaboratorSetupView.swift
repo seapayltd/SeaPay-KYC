@@ -177,16 +177,28 @@ struct CollaboratorSetupView: View {
             UserDefaults.standard.set(true, forKey: "isCollaborator")
 
             // Pull all workspace vessels into local data
-            let vessels = try await CollaborationService.shared.listWorkspaceVessels()
-            for wv in vessels {
-                if let snapshot = try? await CollaborationService.shared.pullVessel(vesselId: wv.vesselId) {
-                    if let vs = snapshot.vessels {
-                        for v in vs { if !vm.vessels.contains(where: { $0.id == v.id }) { vm.vessels.append(v) } }
-                    }
-                    if let cs = snapshot.checks {
-                        for c in cs { if !vm.checks.contains(where: { $0.id == c.id }) { vm.checks.append(c) } }
-                    }
+            let wsVessels = try await CollaborationService.shared.listWorkspaceVessels()
+            let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+            for wv in wsVessels {
+                guard let token = CollaborationService.shared.workspace?.token,
+                      let url = URL(string: "https://seapay.me/oceancheck/api/sync.php?action=pull&vessel_id=\(wv.vesselId)") else { continue }
+                var req = URLRequest(url: url)
+                req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                req.timeoutInterval = 30
+                guard let (data, _) = try? await URLSession.shared.data(for: req),
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let snap = json["snapshot"] as? [String: Any] else { continue }
+
+                if let vRaw = snap["vessels"], let vData = try? JSONSerialization.data(withJSONObject: vRaw),
+                   let vs = try? decoder.decode([Vessel].self, from: vData) {
+                    for v in vs { if !vm.vessels.contains(where: { $0.id == v.id }) { vm.vessels.append(v) } }
                 }
+                if let cRaw = snap["checks"], let cData = try? JSONSerialization.data(withJSONObject: cRaw),
+                   let cs = try? decoder.decode([KYCCheck].self, from: cData) {
+                    for c in cs { if !vm.checks.contains(where: { $0.id == c.id }) { vm.checks.append(c) } }
+                }
+                // Download images
+                await FilesSyncService.shared.downloadMissingFiles(vesselId: wv.vesselId, vm: vm)
             }
             vm.saveChecks(); vm.saveVessels()
 

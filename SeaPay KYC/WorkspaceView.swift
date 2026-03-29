@@ -360,35 +360,79 @@ struct FleetTabView: View {
 
     private func syncAllVessels() async {
         isSyncingAll = true; defer { isSyncingAll = false }
+        var synced = 0
         for wv in workspaceVessels {
             do {
-                guard let snapshot = try await CollaborationService.shared.pullVessel(vesselId: wv.vesselId) else { continue }
-                if let vessels = snapshot.vessels {
-                    for v in vessels {
-                        if let i = vm.vessels.firstIndex(where: { $0.id == v.id }) { vm.vessels[i] = v }
-                        else { vm.vessels.append(v) }
+                // Pull raw JSON and decode vessels/checks separately for better error handling
+                guard let token = CollaborationService.shared.workspace?.token else { continue }
+                guard let url = URL(string: "https://seapay.me/oceancheck/api/sync.php?action=pull&vessel_id=\(wv.vesselId)") else { continue }
+                var req = URLRequest(url: url)
+                req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                req.timeoutInterval = 30
+
+                let (data, _) = try await URLSession.shared.data(for: req)
+                guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+                guard let snapshotDict = json["snapshot"] as? [String: Any] else { continue }
+
+                let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+
+                // Decode vessels separately (so one failure doesn't kill everything)
+                if let vesselsRaw = snapshotDict["vessels"] {
+                    let vesselsData = try JSONSerialization.data(withJSONObject: vesselsRaw)
+                    do {
+                        let vessels = try decoder.decode([Vessel].self, from: vesselsData)
+                        for v in vessels {
+                            if let i = vm.vessels.firstIndex(where: { $0.id == v.id }) { vm.vessels[i] = v }
+                            else { vm.vessels.append(v) }
+                        }
+                    } catch {
+                        self.error = "Vessel decode: \(error.localizedDescription)"
                     }
                 }
-                if let checks = snapshot.checks {
-                    for check in checks {
-                        if let i = vm.checks.firstIndex(where: { $0.id == check.id }) { vm.checks[i] = check }
-                        else { vm.checks.append(check) }
+
+                // Decode checks separately
+                if let checksRaw = snapshotDict["checks"] {
+                    let checksData = try JSONSerialization.data(withJSONObject: checksRaw)
+                    do {
+                        let checks = try decoder.decode([KYCCheck].self, from: checksData)
+                        for check in checks {
+                            if let i = vm.checks.firstIndex(where: { $0.id == check.id }) { vm.checks[i] = check }
+                            else { vm.checks.append(check) }
+                        }
+                    } catch {
+                        self.error = "Check decode: \(error.localizedDescription)"
                     }
                 }
+
+                // Download files
                 await FilesSyncService.shared.downloadMissingFiles(vesselId: wv.vesselId, vm: vm)
-            } catch {}
+                synced += 1
+            } catch {
+                self.error = "Sync \(wv.vesselName): \(error.localizedDescription)"
+            }
         }
         vm.saveChecks(); vm.saveVessels()
+        if synced > 0 { Haptics.light() }
     }
 
     private func pushVessel(_ wv: WorkspaceVessel) async {
-        guard let vessel = vm.vessels.first(where: { $0.id == wv.vesselId }) else { return }
+        guard let vessel = vm.vessels.first(where: { $0.id == wv.vesselId }) else {
+            self.error = "Vessel not found locally"; return
+        }
         syncingVesselId = wv.vesselId; defer { syncingVesselId = nil }
+        let checks = vm.checksForVessel(vessel.id)
         do {
-            _ = try await CollaborationService.shared.pushVessel(vessel: vessel, checks: vm.checksForVessel(vessel.id))
+            _ = try await CollaborationService.shared.pushVessel(vessel: vessel, checks: checks)
+            // Upload all images for this vessel
             await FilesSyncService.shared.uploadMissingFiles(vesselId: vessel.id, vm: vm)
-            Haptics.success(); await refresh()
-        } catch { self.error = "Push failed: \(error.localizedDescription)" }
+            self.error = nil
+            Haptics.success()
+            // Refresh metadata (not full sync — we just pushed)
+            workspaceDetail = try? await CollaborationService.shared.getWorkspaceInfo()
+            activity = (try? await CollaborationService.shared.getActivity()) ?? []
+        } catch {
+            self.error = "Push failed: \(error.localizedDescription)"
+        }
     }
 
     private func pullWithReview(_ wv: WorkspaceVessel) async {
