@@ -216,7 +216,7 @@ struct HomeView: View {
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search crew or vessels")
             .sheet(item: $activeCheck) { VerificationSheet(vm: vm, check: $0) }
             .sheet(item: $inviteCheck) { InviteSheet(vm: vm, check: $0) }
-            .sheet(isPresented: $showSettings) { NavigationStack { SettingsSheet(vm: vm, appState: appState) } }
+            .sheet(isPresented: $showSettings) { SettingsSheet(vm: vm, appState: appState) }
             .sheet(isPresented: $showAddVessel) { VesselSheet(vm: vm) }
             .sheet(isPresented: $showBatchInvite) { BatchInviteSheet(vm: vm) }
             .sheet(isPresented: $showBatchImport) { BatchImportSheet(vm: vm) }

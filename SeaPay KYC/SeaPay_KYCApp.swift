@@ -63,7 +63,7 @@ struct SeaPay_KYCApp: App {
                     } else if ownerAccessCode != nil {
                         OwnerDashboardView(onSignOut: { ownerAccessCode = nil })
                     } else if appState.isConfigured {
-                        DashboardView(vm: vm, appState: appState)
+                        HomeView(vm: vm, appState: appState)
                     } else {
                         WelcomeView(
                             onAgent: { showAgentSetup = true },
@@ -186,7 +186,7 @@ struct SeaPay_KYCApp: App {
         #if targetEnvironment(macCatalyst)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("New Vessel") { /* handled by DashboardView keyboard shortcut */ }
+                Button("New Vessel") { /* handled by HomeView keyboard shortcut */ }
                     .keyboardShortcut("n", modifiers: .command)
             }
             CommandGroup(after: .sidebar) {
