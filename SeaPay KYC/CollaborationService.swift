@@ -299,6 +299,42 @@ final class CollaborationService {
         return nil
     }
 
+    // MARK: - Workspace Vessel Management
+
+    func addVesselToWorkspace(vessel: Vessel, scenario: FleetScenario) async throws {
+        let body: [String: Any] = [
+            "vessel_id": vessel.id,
+            "vessel_name": vessel.name,
+            "vessel_imo": vessel.imoNumber,
+            "scenario": scenario.rawValue,
+        ]
+        _ = try await authenticatedRequest("workspace.php?action=add_vessel", method: "POST", body: body)
+    }
+
+    func removeVesselFromWorkspace(vesselId: String) async throws {
+        _ = try await authenticatedRequest("workspace.php?action=remove_vessel", method: "POST", body: ["vessel_id": vesselId])
+    }
+
+    func listWorkspaceVessels() async throws -> [WorkspaceVessel] {
+        let data = try await authenticatedRequest("workspace.php?action=list_vessels")
+        let response = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        guard let arr = response?["vessels"] as? [[String: Any]] else { return [] }
+        let arrData = try JSONSerialization.data(withJSONObject: arr)
+        return (try? JSONDecoder().decode([WorkspaceVessel].self, from: arrData)) ?? []
+    }
+
+    // MARK: - Audit Trail
+
+    func getAuditTrail(vesselId: String? = nil, limit: Int = 30) async throws -> [FleetAuditEvent] {
+        var endpoint = "workspace.php?action=audit&limit=\(limit)"
+        if let vid = vesselId { endpoint += "&vessel_id=\(vid)" }
+        let data = try await authenticatedRequest(endpoint)
+        let response = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        guard let arr = response?["events"] as? [[String: Any]] else { return [] }
+        let arrData = try JSONSerialization.data(withJSONObject: arr)
+        return (try? JSONDecoder().decode([FleetAuditEvent].self, from: arrData)) ?? []
+    }
+
     // MARK: - Activity
 
     func getActivity(limit: Int = 30) async throws -> [ActivityEvent] {

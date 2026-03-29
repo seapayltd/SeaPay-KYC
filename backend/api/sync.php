@@ -148,6 +148,33 @@ switch ($action) {
         ]);
         break;
 
+    // ─── SOFT DELETE SNAPSHOT ───
+    case 'delete_snapshot':
+        $auth = authenticate();
+        $data = getJSON();
+        $snapshotId = trim($data['snapshot_id'] ?? '');
+        if (!$snapshotId) jsonError(400, 'snapshot_id required');
+
+        $db = getDB();
+        try { $db->exec("ALTER TABLE sync_snapshots ADD COLUMN is_deleted TINYINT(1) DEFAULT 0"); } catch (Exception $e) {}
+
+        // Audit before deleting
+        $stmt = $db->prepare("SELECT vessel_id, vessel_name, agent_name, version FROM sync_snapshots WHERE id = ? AND workspace_id = ?");
+        $stmt->execute([$snapshotId, $auth['workspace_id']]);
+        $snap = $stmt->fetch();
+        if (!$snap) jsonError(404, 'Snapshot not found');
+
+        $db->prepare("UPDATE sync_snapshots SET is_deleted = 1 WHERE id = ?")->execute([$snapshotId]);
+
+        // Audit trail
+        $db->prepare("INSERT INTO audit_trail (id, workspace_id, vessel_id, agent_id, agent_name, action, entity_type, entity_id, entity_name)
+                      VALUES (?, ?, ?, ?, ?, 'soft_delete', 'snapshot', ?, ?)")
+           ->execute([uuid(), $auth['workspace_id'], $snap['vessel_id'], $auth['agent_id'], $auth['agent_name'], $snapshotId, "v{$snap['version']} by {$snap['agent_name']}"]);
+
+        logActivity($auth['workspace_id'], $auth['agent_id'], $auth['agent_name'], 'snapshot_deleted', 'snapshot', "v{$snap['version']}");
+        jsonResponse(['ok' => true]);
+        break;
+
     default:
-        jsonError(400, 'Unknown action. Use: push, pull, status');
+        jsonError(400, 'Unknown action. Use: push, pull, status, delete_snapshot');
 }

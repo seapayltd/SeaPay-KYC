@@ -151,6 +151,102 @@ switch ($action) {
         jsonResponse(['ok' => true]);
         break;
 
+    // ─── ADD VESSEL TO WORKSPACE ───
+    case 'add_vessel':
+        $auth = authenticate();
+        $data = getJSON();
+        $vesselId = trim($data['vessel_id'] ?? '');
+        $vesselName = trim($data['vessel_name'] ?? '');
+        $vesselIMO = trim($data['vessel_imo'] ?? '');
+        $scenario = trim($data['scenario'] ?? '');
+
+        if (!$vesselId) jsonError(400, 'vessel_id required');
+
+        $db = getDB();
+        initSchema(); // ensure workspace_vessels table exists
+
+        // Check if already added
+        $stmt = $db->prepare("SELECT id FROM workspace_vessels WHERE workspace_id = ? AND vessel_id = ?");
+        $stmt->execute([$auth['workspace_id'], $vesselId]);
+        if ($stmt->fetch()) jsonResponse(['ok' => true, 'message' => 'Vessel already in workspace']);
+
+        $db->prepare("INSERT INTO workspace_vessels (id, workspace_id, vessel_id, vessel_name, vessel_imo, scenario, added_by_agent, added_by_name)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+           ->execute([uuid(), $auth['workspace_id'], $vesselId, $vesselName, $vesselIMO, $scenario, $auth['agent_id'], $auth['agent_name']]);
+
+        logActivity($auth['workspace_id'], $auth['agent_id'], $auth['agent_name'], 'vessel_added', 'vessel', $vesselName);
+
+        // Audit trail
+        $db->prepare("INSERT INTO audit_trail (id, workspace_id, vessel_id, agent_id, agent_name, action, entity_type, entity_name)
+                      VALUES (?, ?, ?, ?, ?, 'add_vessel', 'vessel', ?)")
+           ->execute([uuid(), $auth['workspace_id'], $vesselId, $auth['agent_id'], $auth['agent_name'], $vesselName]);
+
+        jsonResponse(['ok' => true], 201);
+        break;
+
+    // ─── REMOVE VESSEL FROM WORKSPACE ───
+    case 'remove_vessel':
+        $auth = authenticate();
+        $data = getJSON();
+        $vesselId = trim($data['vessel_id'] ?? '');
+        if (!$vesselId) jsonError(400, 'vessel_id required');
+
+        $db = getDB();
+
+        // Get vessel name for audit
+        $stmt = $db->prepare("SELECT vessel_name FROM workspace_vessels WHERE workspace_id = ? AND vessel_id = ?");
+        $stmt->execute([$auth['workspace_id'], $vesselId]);
+        $vn = $stmt->fetch()['vessel_name'] ?? '';
+
+        $db->prepare("DELETE FROM workspace_vessels WHERE workspace_id = ? AND vessel_id = ?")
+           ->execute([$auth['workspace_id'], $vesselId]);
+
+        logActivity($auth['workspace_id'], $auth['agent_id'], $auth['agent_name'], 'vessel_removed', 'vessel', $vn);
+
+        // Audit trail (vessel removal — data still in sync_snapshots)
+        $db->prepare("INSERT INTO audit_trail (id, workspace_id, vessel_id, agent_id, agent_name, action, entity_type, entity_name)
+                      VALUES (?, ?, ?, ?, ?, 'remove_vessel', 'vessel', ?)")
+           ->execute([uuid(), $auth['workspace_id'], $vesselId, $auth['agent_id'], $auth['agent_name'], $vn]);
+
+        jsonResponse(['ok' => true]);
+        break;
+
+    // ─── LIST WORKSPACE VESSELS ───
+    case 'list_vessels':
+        $auth = authenticate();
+        $db = getDB();
+        initSchema();
+
+        $stmt = $db->prepare("SELECT vessel_id, vessel_name, vessel_imo, scenario, added_by_agent, added_by_name, added_at
+                              FROM workspace_vessels WHERE workspace_id = ? ORDER BY added_at");
+        $stmt->execute([$auth['workspace_id']]);
+
+        jsonResponse(['vessels' => $stmt->fetchAll()]);
+        break;
+
+    // ─── VESSEL AUDIT TRAIL ───
+    case 'audit':
+        $auth = authenticate();
+        $vesselId = $_GET['vessel_id'] ?? null;
+        $limit = min((int)($_GET['limit'] ?? 30), 100);
+
+        $db = getDB();
+
+        if ($vesselId) {
+            $stmt = $db->prepare("SELECT id, vessel_id, agent_id, agent_name, action, entity_type, entity_id, entity_name, created_at
+                                  FROM audit_trail WHERE workspace_id = ? AND vessel_id = ?
+                                  ORDER BY created_at DESC LIMIT ?");
+            $stmt->execute([$auth['workspace_id'], $vesselId, $limit]);
+        } else {
+            $stmt = $db->prepare("SELECT id, vessel_id, agent_id, agent_name, action, entity_type, entity_id, entity_name, created_at
+                                  FROM audit_trail WHERE workspace_id = ?
+                                  ORDER BY created_at DESC LIMIT ?");
+            $stmt->execute([$auth['workspace_id'], $limit]);
+        }
+
+        jsonResponse(['events' => $stmt->fetchAll()]);
+        break;
+
     default:
-        jsonError(400, 'Unknown action. Use: create, join, info, leave');
+        jsonError(400, 'Unknown action. Use: create, join, info, leave, add_vessel, remove_vessel, list_vessels, audit');
 }

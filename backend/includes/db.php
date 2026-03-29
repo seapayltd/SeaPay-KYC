@@ -60,6 +60,42 @@ function initSchema(): void {
         INDEX idx_workspace_version (workspace_id, version DESC)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
+    $db->exec("CREATE TABLE IF NOT EXISTS workspace_vessels (
+        id VARCHAR(36) PRIMARY KEY,
+        workspace_id VARCHAR(36) NOT NULL,
+        vessel_id VARCHAR(36) NOT NULL,
+        vessel_name VARCHAR(100) DEFAULT '',
+        vessel_imo VARCHAR(20) DEFAULT '',
+        scenario VARCHAR(50) DEFAULT '',
+        added_by_agent VARCHAR(36),
+        added_by_name VARCHAR(100) DEFAULT '',
+        added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+        UNIQUE KEY unique_vessel_workspace (workspace_id, vessel_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    $db->exec("CREATE TABLE IF NOT EXISTS audit_trail (
+        id VARCHAR(36) PRIMARY KEY,
+        workspace_id VARCHAR(36) NOT NULL,
+        vessel_id VARCHAR(36) DEFAULT NULL,
+        agent_id VARCHAR(36),
+        agent_name VARCHAR(100) DEFAULT '',
+        action VARCHAR(50) NOT NULL,
+        entity_type VARCHAR(30) DEFAULT '',
+        entity_id VARCHAR(36) DEFAULT NULL,
+        entity_name VARCHAR(100) DEFAULT '',
+        before_json LONGTEXT DEFAULT NULL,
+        after_json LONGTEXT DEFAULT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+        INDEX idx_vessel (workspace_id, vessel_id, created_at DESC)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    // Add soft delete to sync_snapshots if not present
+    try { $db->exec("ALTER TABLE sync_snapshots ADD COLUMN is_deleted TINYINT(1) DEFAULT 0"); } catch (Exception $e) {}
+    try { $db->exec("ALTER TABLE sync_snapshots ADD COLUMN vessel_id VARCHAR(36) DEFAULT NULL"); } catch (Exception $e) {}
+    try { $db->exec("ALTER TABLE sync_snapshots ADD COLUMN vessel_name VARCHAR(100) DEFAULT ''"); } catch (Exception $e) {}
+
     $db->exec("CREATE TABLE IF NOT EXISTS activity_log (
         id VARCHAR(36) PRIMARY KEY,
         workspace_id VARCHAR(36) NOT NULL,
