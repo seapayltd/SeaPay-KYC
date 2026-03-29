@@ -35,6 +35,9 @@ struct VesselDetailView: View {
     @State private var showOwnerShare = false
     @State private var showPhotoPicker = false
     @State private var selectedPhoto: PhotosPickerItem?
+    @State private var isSyncing = false
+    @State private var isExportingPackage = false
+    @State private var packageShareURL: URL?
 
     private var v: Vessel { vm.vessels.first(where: { $0.id == vessel.id }) ?? vessel }
     private var crew: [KYCCheck] { vm.checksForVessel(vessel.id) }
@@ -160,7 +163,7 @@ struct VesselDetailView: View {
             // Crew
             Section {
                 ForEach(seafarerCrew) { check in
-                    Button { activeCheck = check } label: { crewRow(check) }
+                    NavigationLink { PersonDetailView(vm: vm, check: check) } label: { crewRow(check) }
                         .contextMenu { personContextMenu(check) }
                         .swipeActions(edge: .leading) {
                             if vm.vessels.count > 1 {
@@ -187,7 +190,7 @@ struct VesselDetailView: View {
             if !shoreBasedPersonnel.isEmpty {
                 Section {
                     ForEach(shoreBasedPersonnel) { check in
-                        Button { activeCheck = check } label: { crewRow(check) }
+                        NavigationLink { PersonDetailView(vm: vm, check: check) } label: { crewRow(check) }
                             .contextMenu { personContextMenu(check) }
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) { checkToDelete = check } label: { Label("Delete", systemImage: "trash") }
@@ -224,7 +227,7 @@ struct VesselDetailView: View {
                 }
 
                 ForEach(complianceEntities) { check in
-                    Button { activeCheck = check } label: { crewRow(check) }
+                    NavigationLink { PersonDetailView(vm: vm, check: check) } label: { crewRow(check) }
                         .contextMenu { personContextMenu(check) }
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) { checkToDelete = check } label: { Label("Delete", systemImage: "trash") }
@@ -236,6 +239,60 @@ struct VesselDetailView: View {
                     Label(v.ownershipStructure == nil ? "UBO Verification" : "Update UBO Verification", systemImage: "person.badge.key").font(Typo.body).foregroundStyle(.primary)
                 }
             } header: { Text("Compliance") }
+
+            // Workspace
+            if CollaborationService.shared.isConnected, let ws = CollaborationService.shared.workspace {
+                Section {
+                    CardView {
+                        VStack(alignment: .leading, spacing: Space.md) {
+                            HStack(spacing: Space.sm) {
+                                Image(systemName: "person.2.circle.fill")
+                                    .font(.system(size: 20))
+                                    .foregroundStyle(.secondary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(ws.name).font(Typo.body).fontWeight(.medium)
+                                    Text("Shared workspace").font(Typo.meta).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                            }
+
+                            HStack(spacing: Space.sm) {
+                                Button {
+                                    isSyncing = true
+                                    Task {
+                                        await FilesSyncService.shared.uploadMissingFiles(vesselId: vessel.id, vm: vm)
+                                        isSyncing = false
+                                        Haptics.success()
+                                    }
+                                } label: {
+                                    Label(isSyncing ? "Syncing..." : "Sync Files", systemImage: "arrow.triangle.2.circlepath")
+                                        .font(Typo.caption)
+                                        .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(SecondaryButtonStyle())
+                                .disabled(isSyncing)
+
+                                Button {
+                                    isExportingPackage = true
+                                    if let url = vm.generateTransferPackage(vesselId: vessel.id, scenario: .vesselSale) {
+                                        packageShareURL = url
+                                    }
+                                    isExportingPackage = false
+                                    Haptics.success()
+                                } label: {
+                                    Label("Download Package", systemImage: "arrow.down.doc")
+                                        .font(Typo.caption)
+                                        .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(SecondaryButtonStyle())
+                                .disabled(isExportingPackage)
+                            }
+                        }
+                    }
+                    .listRowInsets(EdgeInsets(top: Space.sm, leading: Space.lg, bottom: Space.sm, trailing: Space.lg))
+                    .listRowBackground(Color.clear)
+                } header: { Text("Workspace") }
+            }
         }
         .listStyle(.insetGrouped)
         .background(Color.surface.ignoresSafeArea())
@@ -280,6 +337,9 @@ struct VesselDetailView: View {
         .sheet(isPresented: $showOwnershipFlow) { OwnershipFlowView(vm: vm, vesselId: vessel.id) }
         .sheet(isPresented: $showShareVesselData) { ShareVesselSheet(vm: vm, vessel: v) }
         .sheet(isPresented: $showOwnerShare) { ShareWithOwnerSheet(vm: vm, vesselId: vessel.id) }
+        .sheet(isPresented: Binding(get: { packageShareURL != nil }, set: { if !$0 { packageShareURL = nil } })) {
+            if let url = packageShareURL { ActivityView(items: [url]) }
+        }
         .alert("Edit Name", isPresented: .constant(editingPerson != nil)) {
             TextField("Name", text: $editName)
             Button("Cancel", role: .cancel) { editingPerson = nil }
