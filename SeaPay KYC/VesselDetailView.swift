@@ -803,11 +803,10 @@ struct VesselDocDetailSheet: View {
                     dismiss()
                 }
             } message: { Text("This will remove \(document.displayName) from the vessel.") }
-            .fullScreenCover(item: Binding(
-                get: { previewImage.map { ImagePreviewItem(image: $0, filename: previewFilename ?? "") } },
-                set: { if $0 == nil { previewImage = nil } }
-            )) { item in
-                ImagePreviewView(image: item.image, filename: item.filename, imagesDir: vm.imagesDir)
+            .fullScreenCover(isPresented: Binding(get: { previewImage != nil }, set: { if !$0 { previewImage = nil } })) {
+                if let img = previewImage {
+                    ImagePreviewView(image: img, filename: previewFilename ?? "", imagesDir: vm.imagesDir)
+                }
             }
             .sheet(isPresented: Binding(get: { shareData != nil }, set: { if !$0 { shareData = nil } })) {
                 if let data = shareData { ActivityView(items: [data]) }

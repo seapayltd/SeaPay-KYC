@@ -519,11 +519,10 @@ struct DocumentDetailSheet: View {
             .sheet(isPresented: $showRenew) {
                 QuickAddSheet(vm: vm, checkId: checkId, docType: document.type, renewingDocId: document.id)
             }
-            .fullScreenCover(item: Binding(
-                get: { previewImage.map { ImagePreviewItem(image: $0, filename: previewFilename ?? "") } },
-                set: { if $0 == nil { previewImage = nil } }
-            )) { item in
-                ImagePreviewView(image: item.image, filename: item.filename, imagesDir: vm.imagesDir)
+            .fullScreenCover(isPresented: Binding(get: { previewImage != nil }, set: { if !$0 { previewImage = nil } })) {
+                if let img = previewImage {
+                    ImagePreviewView(image: img, filename: previewFilename ?? "", imagesDir: vm.imagesDir)
+                }
             }
             .sheet(isPresented: Binding(get: { shareData != nil }, set: { if !$0 { shareData = nil } })) {
                 if let data = shareData { ActivityView(items: [data]) }
@@ -534,12 +533,6 @@ struct DocumentDetailSheet: View {
 
 // MARK: - Image Preview
 
-struct ImagePreviewItem: Identifiable {
-    let id = UUID()
-    let image: UIImage
-    let filename: String
-}
-
 struct ImagePreviewView: View {
     let image: UIImage
     let filename: String
@@ -548,15 +541,15 @@ struct ImagePreviewView: View {
     @State private var showShare = false
 
     var body: some View {
-        Color.black
-            .ignoresSafeArea()
-            .overlay {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .padding(1)
-            }
-            .overlay(alignment: .topLeading) {
+        ZStack {
+            Color.black
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .padding(.horizontal, 8)
+        }
+        .ignoresSafeArea()
+        .overlay(alignment: .topLeading) {
                 Button { dismiss() } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 13, weight: .bold))
