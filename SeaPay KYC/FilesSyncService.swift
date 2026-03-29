@@ -3,10 +3,11 @@
 //  OceanCheck
 //
 //  Syncs document images between devices via the backend file storage.
-//  Uploads missing local files, downloads missing remote files.
+//  Uploads missing local files on push, downloads missing remote files on pull.
 //
 
 import Foundation
+import Combine
 import os.log
 
 private let fileSyncLogger = Logger(subsystem: "com.seapay.kyc", category: "FileSync")
@@ -31,10 +32,125 @@ struct RemoteFile: Codable, Sendable {
 }
 
 @MainActor
-class FilesSyncService {
+class FilesSyncService: ObservableObject {
     static let shared = FilesSyncService()
 
+    @Published var syncProgress: String?
+    @Published var isSyncing = false
+
     private let baseURL = "https://seapay.me/oceancheck/api"
+
+    // MARK: - Collect ALL image filenames for a vessel
+
+    private func collectLocalFilenames(vesselId: String, vm: KYCViewModel) -> Set<String> {
+        var files: Set<String> = []
+
+        // Vessel photo
+        if let vessel = vm.vessels.first(where: { $0.id == vesselId }), let photo = vessel.photoFilename {
+            files.insert(photo)
+        }
+
+        // All checks for this vessel
+        let checks = vm.checksForVessel(vesselId)
+        for check in checks {
+            // ID scan images (front/back)
+            for path in check.documentImagePaths ?? [] { files.insert(path) }
+            // Profile photo
+            if let photo = check.profilePhoto { files.insert(photo) }
+            // Crew document images (certificates, seaman's book, etc.)
+            for doc in check.documents ?? [] {
+                for path in doc.imagePaths { files.insert(path) }
+            }
+        }
+
+        return files
+    }
+
+    // MARK: - Upload All Missing Files
+
+    func uploadMissingFiles(vesselId: String, vm: KYCViewModel) async {
+        guard let token = CollaborationService.shared.workspace?.token else { return }
+
+        let localFiles = collectLocalFilenames(vesselId: vesselId, vm: vm)
+        guard !localFiles.isEmpty else { return }
+
+        // Get already-uploaded files
+        let remoteFilenames: Set<String>
+        do {
+            remoteFilenames = Set(try await listRemoteFiles(vesselId: vesselId).map(\.filename))
+        } catch {
+            fileSyncLogger.error("Failed to list remote files: \(error.localizedDescription)")
+            return
+        }
+
+        let missing = localFiles.subtracting(remoteFilenames)
+        guard !missing.isEmpty else { return }
+
+        isSyncing = true
+        var uploaded = 0
+
+        for filename in missing {
+            // Try loading from imagesDir
+            let filePath = vm.imagesDir.appendingPathComponent(filename)
+            guard let fileData = try? Data(contentsOf: filePath) else {
+                fileSyncLogger.warning("Local file not found: \(filename)")
+                continue
+            }
+
+            syncProgress = "Uploading \(uploaded + 1)/\(missing.count)..."
+
+            let success = await uploadFile(filename: filename, data: fileData, vesselId: vesselId, token: token)
+            if success { uploaded += 1 }
+        }
+
+        fileSyncLogger.info("Uploaded \(uploaded)/\(missing.count) files for vessel \(vesselId.prefix(8))")
+        syncProgress = nil
+        isSyncing = false
+    }
+
+    // MARK: - Download All Missing Files
+
+    func downloadMissingFiles(vesselId: String, vm: KYCViewModel) async {
+        guard let token = CollaborationService.shared.workspace?.token else { return }
+
+        let remoteFiles: [RemoteFile]
+        do {
+            remoteFiles = try await listRemoteFiles(vesselId: vesselId)
+        } catch {
+            fileSyncLogger.error("Failed to list remote files: \(error.localizedDescription)")
+            return
+        }
+
+        guard !remoteFiles.isEmpty else { return }
+
+        let fm = FileManager.default
+        // Find which files we don't have locally
+        let missingFiles = remoteFiles.filter { !fm.fileExists(atPath: vm.imagesDir.appendingPathComponent($0.filename).path) }
+        guard !missingFiles.isEmpty else { return }
+
+        isSyncing = true
+        var downloaded = 0
+
+        for remote in missingFiles {
+            syncProgress = "Downloading \(downloaded + 1)/\(missingFiles.count)..."
+
+            if let data = await downloadFile(filename: remote.filename, token: token) {
+                let localPath = vm.imagesDir.appendingPathComponent(remote.filename)
+                do {
+                    try data.write(to: localPath)
+                    downloaded += 1
+                } catch {
+                    fileSyncLogger.error("Failed to write \(remote.filename): \(error.localizedDescription)")
+                }
+            }
+        }
+
+        fileSyncLogger.info("Downloaded \(downloaded)/\(missingFiles.count) files for vessel \(vesselId.prefix(8))")
+        // Invalidate image cache for downloaded files
+        for f in missingFiles { vm.invalidateImageCache(filename: f.filename) }
+        syncProgress = nil
+        isSyncing = false
+    }
 
     // MARK: - List Remote Files
 
@@ -45,108 +161,61 @@ class FilesSyncService {
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.timeoutInterval = 15
 
-        let (data, _) = try await URLSession.shared.data(for: req)
-        let response = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        guard let arr = response?["files"] as? [[String: Any]] else { return [] }
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { return [] }
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        guard let arr = json?["files"] as? [[String: Any]] else { return [] }
         let arrData = try JSONSerialization.data(withJSONObject: arr)
         return (try? JSONDecoder().decode([RemoteFile].self, from: arrData)) ?? []
     }
 
-    // MARK: - Upload Missing Files
+    // MARK: - Upload Single File (returns success)
 
-    func uploadMissingFiles(vesselId: String, vm: KYCViewModel) async {
-        guard let token = CollaborationService.shared.workspace?.token else { return }
+    private func uploadFile(filename: String, data: Data, vesselId: String, token: String) async -> Bool {
+        guard let url = URL(string: "\(baseURL)/files.php?action=upload") else { return false }
 
-        // Collect all local image filenames for this vessel
-        var localFiles: Set<String> = []
-        let checks = vm.checksForVessel(vesselId)
-        for check in checks {
-            for path in check.documentImagePaths ?? [] { localFiles.insert(path) }
-            if let photo = check.profilePhoto { localFiles.insert(photo) }
-            for doc in check.documents ?? [] {
-                for path in doc.imagePaths { localFiles.insert(path) }
-            }
-        }
-        if let vessel = vm.vessels.first(where: { $0.id == vesselId }), let photo = vessel.photoFilename {
-            localFiles.insert(photo)
-        }
-
-        guard !localFiles.isEmpty else { return }
-
-        // Get list of already-uploaded files
-        let remoteFilenames: Set<String>
-        do {
-            remoteFilenames = Set(try await listRemoteFiles(vesselId: vesselId).map(\.filename))
-        } catch { return }
-
-        // Upload missing
-        let missing = localFiles.subtracting(remoteFilenames)
-        for filename in missing {
-            guard let fileData = vm.loadDocumentImage(filename: filename) else { continue }
-            await uploadFile(filename: filename, data: fileData, vesselId: vesselId, token: token)
-        }
-
-        #if DEBUG
-        if !missing.isEmpty { fileSyncLogger.debug("Uploaded \(missing.count) files for vessel \(vesselId.prefix(8))") }
-        #endif
-    }
-
-    // MARK: - Download Missing Files
-
-    func downloadMissingFiles(vesselId: String, vm: KYCViewModel) async {
-        guard let token = CollaborationService.shared.workspace?.token else { return }
-
-        // Get remote file list
-        let remoteFiles: [RemoteFile]
-        do { remoteFiles = try await listRemoteFiles(vesselId: vesselId) } catch { return }
-
-        guard !remoteFiles.isEmpty else { return }
-
-        // Check which files we're missing locally
-        let fm = FileManager.default
-        var downloaded = 0
-
-        for remote in remoteFiles {
-            let localPath = vm.imagesDir.appendingPathComponent(remote.filename)
-            if fm.fileExists(atPath: localPath.path) { continue }
-
-            // Download
-            if let data = await downloadFile(filename: remote.filename, token: token) {
-                try? data.write(to: localPath)
-                downloaded += 1
-            }
-        }
-
-        #if DEBUG
-        if downloaded > 0 { fileSyncLogger.debug("Downloaded \(downloaded) files for vessel \(vesselId.prefix(8))") }
-        #endif
-    }
-
-    // MARK: - Upload Single File
-
-    private func uploadFile(filename: String, data: Data, vesselId: String, token: String) async {
-        guard let url = URL(string: "\(baseURL)/files.php?action=upload") else { return }
-
-        let boundary = UUID().uuidString
+        let boundary = "Boundary-\(UUID().uuidString)"
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        req.timeoutInterval = 30
+        req.timeoutInterval = 60  // Large files need more time
 
         var body = Data()
-        // vessel_id field
-        body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"vessel_id\"\r\n\r\n\(vesselId)\r\n".data(using: .utf8)!)
-        // filename field
-        body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"filename\"\r\n\r\n\(filename)\r\n".data(using: .utf8)!)
-        // file field
+
+        // vessel_id
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"vessel_id\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(vesselId)\r\n".data(using: .utf8)!)
+
+        // filename
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"filename\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(filename)\r\n".data(using: .utf8)!)
+
+        // file
         let mime = filename.hasSuffix(".pdf") ? "application/pdf" : filename.hasSuffix(".png") ? "image/png" : "image/jpeg"
-        body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\nContent-Type: \(mime)\r\n\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mime)\r\n\r\n".data(using: .utf8)!)
         body.append(data)
-        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        body.append("\r\n".data(using: .utf8)!)
+
+        // End
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
         req.httpBody = body
 
-        _ = try? await URLSession.shared.data(for: req)
+        do {
+            let (respData, response) = try await URLSession.shared.data(for: req)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if status == 201 { return true }
+            let errMsg = (try? JSONSerialization.jsonObject(with: respData) as? [String: Any])?["error"] as? String
+            fileSyncLogger.error("Upload failed (\(status)): \(errMsg ?? "unknown")")
+            return false
+        } catch {
+            fileSyncLogger.error("Upload error: \(error.localizedDescription)")
+            return false
+        }
     }
 
     // MARK: - Download Single File
@@ -156,10 +225,18 @@ class FilesSyncService {
         guard let url = URL(string: "\(baseURL)/files.php?action=download&filename=\(encoded)") else { return nil }
         var req = URLRequest(url: url)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        req.timeoutInterval = 30
+        req.timeoutInterval = 60
 
-        guard let (data, response) = try? await URLSession.shared.data(for: req),
-              (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
-        return data
+        do {
+            let (data, response) = try await URLSession.shared.data(for: req)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+                fileSyncLogger.error("Download failed for \(filename): status \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+                return nil
+            }
+            return data
+        } catch {
+            fileSyncLogger.error("Download error for \(filename): \(error.localizedDescription)")
+            return nil
+        }
     }
 }

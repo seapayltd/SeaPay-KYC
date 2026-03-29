@@ -11,6 +11,7 @@ import SwiftUI
 
 struct FleetTabView: View {
     @ObservedObject var vm: KYCViewModel
+    @ObservedObject private var fileSync = FilesSyncService.shared
     @State private var isConnected = false
     @State private var workspaceDetail: WorkspaceDetail?
     @State private var workspaceVessels: [WorkspaceVessel] = []
@@ -158,6 +159,14 @@ struct FleetTabView: View {
                 }
 
                 // Error
+                // File sync progress
+                if let progress = fileSync.syncProgress {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.mini)
+                        Text(progress).font(Typo.meta).foregroundStyle(.secondary)
+                    }.padding(.horizontal, 20).padding(.vertical, 8)
+                }
+
                 if let error { Text(error).font(Typo.meta).foregroundStyle(Color.flagged).padding(20) }
 
                 // Leave
