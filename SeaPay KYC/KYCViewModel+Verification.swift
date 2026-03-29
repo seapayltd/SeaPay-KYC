@@ -165,17 +165,70 @@ extension KYCViewModel {
         let json = String(data: raw, encoding: .utf8) ?? ""
         let poa = resp.poa
 
-        checks[i].poaStatus = poa?.status
-        checks[i].poaAddress = poa?.poaFormattedAddress ?? poa?.poaAddress
-        checks[i].poaIssuer = poa?.issuer
-        checks[i].poaWarnings = poa?.warnings?.compactMap { $0.shortDescription ?? $0.risk }
-        checks[i].rawPoAResponse = json
-        checks[i].checkType = .idWithPoA
-        if poa?.status == "Declined" { checks[i].status = .failed }
-        else if poa?.warnings?.isEmpty == false && checks[i].status == .passed { checks[i].status = .requiresReview }
-        checks[i].completedAt = Date(); saveChecks()
+        // Re-fetch index after await in case array shifted
+        guard let idx = checkIndex(checkId) else { throw AppError.verificationFailed("Check lost during verification") }
+
+        checks[idx].poaStatus = poa?.status
+        checks[idx].poaAddress = poa?.poaFormattedAddress ?? poa?.poaAddress
+        checks[idx].poaIssuer = poa?.issuer
+        checks[idx].poaWarnings = poa?.warnings?.compactMap { $0.shortDescription ?? $0.risk }
+        checks[idx].rawPoAResponse = json
+        checks[idx].checkType = .idWithPoA
+        if poa?.status == "Declined" { checks[idx].status = .failed }
+        else if poa?.warnings?.isEmpty == false && checks[idx].status == .passed { checks[idx].status = .requiresReview }
+        checks[idx].completedAt = Date()
+
+        // Auto-add PoA as a crew document in the person's portfolio
+        let poaDoc = CrewDocument(
+            type: .proofOfAddress,
+            imagePaths: [fp.lastPathComponent],
+            issuingAuthority: poa?.issuer,
+            notes: "Didit PoA: \(poa?.status ?? "Unknown")"
+        )
+        var docs = checks[idx].documents ?? []
+        if let existing = docs.firstIndex(where: { $0.type == .proofOfAddress }) {
+            docs[existing] = poaDoc
+        } else {
+            docs.append(poaDoc)
+        }
+        checks[idx].documents = docs
+        saveChecks()
+
+        // Auto-push updated check data to workspace backend
+        if let vid = checks[idx].vesselId { autoPushVessel(vesselId: vid) }
 
         return PoAResult_(poaResult: poa, rawJSON: json)
+    }
+
+    // MARK: - PoA Override
+
+    func forceApprovePoA(checkId: String, reason: String) {
+        guard let i = checkIndex(checkId) else { return }
+        checks[i].poaStatus = "Approved"
+        checks[i].poaWarnings = nil
+        // If PoA was the only blocker, upgrade status
+        let amlOk = checks[i].amlStatus == nil || checks[i].amlStatus == "Approved" || checks[i].amlStatus == "Clear"
+        let idOk = checks[i].idWarnings?.isEmpty != false
+        if amlOk && idOk { checks[i].status = .passed }
+        else if checks[i].status == .failed { checks[i].status = .requiresReview }
+        // Log in agent notes
+        let note = "PoA force-approved: \(reason)"
+        checks[i].agentNotes = [checks[i].agentNotes, note].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
+        saveChecks()
+        if let vid = checks[i].vesselId { autoPushVessel(vesselId: vid) }
+    }
+
+    func clearPoA(checkId: String) {
+        guard let i = checkIndex(checkId) else { return }
+        checks[i].poaStatus = nil
+        checks[i].poaAddress = nil
+        checks[i].poaIssuer = nil
+        checks[i].poaWarnings = nil
+        checks[i].rawPoAResponse = nil
+        // Remove PoA document from portfolio
+        checks[i].documents?.removeAll { $0.type == .proofOfAddress }
+        saveChecks()
+        if let vid = checks[i].vesselId { autoPushVessel(vesselId: vid) }
     }
 
     // MARK: - AML Re-run

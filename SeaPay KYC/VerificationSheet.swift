@@ -43,60 +43,39 @@ struct VerificationSheet: View {
     @State private var busy = false; @State private var progressText = ""; @State private var error: String?
     @State private var amlRunning = false; @State private var poaRunning = false
 
-    // Results
+    // Results — pipeline needs these for configView
     @State private var idResult: IDResult?; @State private var amlResult: AMLResult?
-    @State private var expandedHits: Set<Int> = []
-    @State private var expandedSections: Set<String> = ["identity", "compliance", "address"]
-
-    // Review
-    @State private var editedName = ""; @State private var showAMLRerun = false
-    @State private var reviewReason = ""; @State private var pendingReview: KYCCheck.ReviewDecision?; @State private var showChangeOptions = false
+    @State private var expandedSections: Set<String> = ["identity"]
     @State private var notes = ""
 
 
     var body: some View {
         NavigationStack {
-            Group {
-                if hasResults && !isExpiredSession { resultsView }
-                else if isExpiredSession { expiredSessionView }
-                else if isWaitingForInvite { inviteWaitingView }
-                else if busy { processingView }
-                else { configView }
-            }
-            .background(Color.surface.ignoresSafeArea())
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) { Text(c.displayName).font(Typo.body) }
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { saveNotes(); dismiss() } }
-            }
-            .onAppear { notes = c.agentNotes ?? ""; if let d = c.expectedDocType { docType = d }; if let d = c.investigationDepth { depth = d }; if hasResults { loadResults() } }
-            .fullScreenCover(isPresented: $showFrontCam) { CameraCapture(result: $frontImage).ignoresSafeArea() }
-            .fullScreenCover(isPresented: $showBackCam) { CameraCapture(result: $backImage).ignoresSafeArea() }
-            .fullScreenCover(isPresented: $showPoACam) { CameraCapture(result: $poaImage).ignoresSafeArea() }
-            .sheet(isPresented: $showFrontFile) { FilePicker { url in frontImage = loadFile(url, forAPI: true) } }
-            .sheet(isPresented: $showBackFile) { FilePicker { url in backImage = loadFile(url, forAPI: true) } }
-            .sheet(isPresented: $showPoAFile) { FilePicker { url in poaImage = loadFile(url, forAPI: false) } }
-            .alert("Re-run Screening", isPresented: $showAMLRerun) {
-                TextField("Full name", text: $editedName)
-                Button("Screen") { Task { await rerunAML() } }; Button("Cancel", role: .cancel) {}
-            } message: { Text("Edit the name and re-run compliance screening.") }
-            .sheet(item: $pendingReview) { decision in
-                ReviewCeremonyView(
-                    personName: c.displayName,
-                    documentType: c.documentType?.replacingOccurrences(of: "_", with: " ").capitalized,
-                    amlStatus: c.amlStatus,
-                    decision: decision == .approved ? .approve : decision == .declined ? .decline : .flag,
-                    reason: $reviewReason,
-                    onConfirm: { vm.submitReview(checkId: c.id, decision: decision, reason: reviewReason); reviewReason = "" }
-                )
-                .presentationDetents([.medium])
-            }
-            .fullScreenCover(isPresented: Binding(get: { previewImage != nil }, set: { if !$0 { previewImage = nil } })) {
-                if let img = previewImage {
-                    ImagePreviewView(image: img, filename: previewFilename ?? "", imagesDir: vm.imagesDir)
-                }
-            }
+            bodyContent
         }
+    }
+
+    private var bodyContent: some View {
+        Group {
+            if hasResults && !isExpiredSession { resultsView }
+            else if isExpiredSession { expiredSessionView }
+            else if isWaitingForInvite { inviteWaitingView }
+            else if busy { processingView }
+            else { configView }
+        }
+        .background(Color.surface.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) { Text(c.displayName).font(Typo.body) }
+            ToolbarItem(placement: .confirmationAction) { Button("Done") { saveNotes(); dismiss() } }
+        }
+        .onAppear { notes = c.agentNotes ?? ""; if let d = c.expectedDocType { docType = d }; if let d = c.investigationDepth { depth = d }; if hasResults { loadResults() } }
+        .fullScreenCover(isPresented: $showFrontCam) { CameraCapture(result: $frontImage).ignoresSafeArea() }
+        .fullScreenCover(isPresented: $showBackCam) { CameraCapture(result: $backImage).ignoresSafeArea() }
+        .fullScreenCover(isPresented: $showPoACam) { CameraCapture(result: $poaImage).ignoresSafeArea() }
+        .sheet(isPresented: $showFrontFile) { FilePicker { url in frontImage = loadFile(url, forAPI: true) } }
+        .sheet(isPresented: $showBackFile) { FilePicker { url in backImage = loadFile(url, forAPI: true) } }
+        .sheet(isPresented: $showPoAFile) { FilePicker { url in poaImage = loadFile(url, forAPI: false) } }
     }
 
     private func saveNotes() { if !notes.isEmpty && notes != (c.agentNotes ?? "") { vm.updateAgentNotes(checkId: c.id, notes: notes) } }
@@ -264,426 +243,17 @@ struct VerificationSheet: View {
         }
     }
 
-    // ═══════════════════════════════════════════
-    // MARK: - Results (tabbed: Identity | Compliance | Address)
-    // ═══════════════════════════════════════════
-
     private var resultsView: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(spacing: 16) {
-                    // Hero header
-                    VStack(spacing: 8) {
-                        HStack(spacing: 10) {
-                            Text(c.displayName).font(Typo.hero)
-                            StatusBadge(status: c.status)
-                        }
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel("\(c.displayName), \(c.status.accessibilityDescription)")
-                        // Role pill (tappable menu)
-                        HStack(spacing: 6) {
-                            Menu {
-                                Section("Crew") {
-                                    ForEach(CrewRank.allCases) { r in
-                                        Button { vm.updateEntityType(checkId: c.id, entityType: .seafarer); vm.setCrewRank(r, for: c.id) } label: {
-                                            HStack { Text(r.rawValue); if c.entityType == .seafarer && c.crewRank == r { Image(systemName: "checkmark") } }
-                                        }
-                                    }
-                                }
-                                Section("Shore-Based") {
-                                    ForEach(KYCCheck.EntityType.shoreBasedTypes, id: \.self) { et in
-                                        Button { vm.updateEntityType(checkId: c.id, entityType: et) } label: {
-                                            HStack { Label(et.rawValue, systemImage: et.icon); if c.entityType == et { Image(systemName: "checkmark") } }
-                                        }
-                                    }
-                                }
-                                Section("Ownership") {
-                                    ForEach(KYCCheck.EntityType.ownershipTypes, id: \.self) { et in
-                                        Button { vm.updateEntityType(checkId: c.id, entityType: et) } label: {
-                                            HStack { Label(et.rawValue, systemImage: et.icon); if c.entityType == et { Image(systemName: "checkmark") } }
-                                        }
-                                    }
-                                }
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: c.entityType.icon).font(.system(size: 10))
-                                    Text(c.entityType.category == .crew ? (c.crewRank?.rawValue ?? "Set Rank") : c.entityType.rawValue).font(Typo.meta)
-                                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 8))
-                                }
-                                .foregroundStyle(c.entityType.category == .crew && c.crewRank == nil ? Color.review : .secondary)
-                                .padding(.horizontal, 10).padding(.vertical, 6)
-                                .background(c.entityType.category == .crew && c.crewRank == nil ? Color.review.opacity(0.08) : Color.surfaceMuted)
-                                .clipShape(Capsule())
-                            }
-
-                            if let dt = c.documentType {
-                                MetadataPill(icon: nil, text: dt.replacingOccurrences(of: "_", with: " ").capitalized)
-                            }
-                            if let date = c.completedAt {
-                                MetadataPill(icon: nil, text: date.formatted(date: .abbreviated, time: .omitted))
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 20).padding(.top, 8)
-
-                    // Processing indicator
-                    if amlRunning || poaRunning {
-                        HStack(spacing: 10) {
-                            ProgressView().controlSize(.small)
-                            Text(amlRunning ? "Checking compliance..." : "Verifying address...").font(Typo.meta).foregroundStyle(.secondary)
-                            Spacer()
-                        }
-                        .padding(.horizontal, 20).padding(.vertical, 12)
-                        .background(Color.surfaceMuted.opacity(0.3))
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                        .padding(.horizontal, 16)
-                    }
-
-                    // Verdict with review audit trail
-                    if !amlRunning && !poaRunning {
-                        VerdictBanner(
-                            status: c.status,
-                            reviewDecision: c.reviewDecision,
-                            reviewedBy: c.reviewedBy,
-                            reviewedAt: c.reviewedAt,
-                            reviewReason: c.reviewReason
-                        )
-                        .padding(.horizontal, 16)
-                    }
-
-                    // Identity section
-                    ExpandableSection("Identity", isExpanded: expandBinding("identity")) {
-                        identityContent.padding(.bottom, 8)
-                    }
-                    .padding(.horizontal, 20)
-
-                    // Compliance section
-                    ExpandableSection("Compliance", isExpanded: expandBinding("compliance")) {
-                        complianceContent.padding(.bottom, 8)
-                    }
-                    .padding(.horizontal, 20)
-
-                    // Address section
-                    if c.poaStatus != nil || depth.includesPoA {
-                        ExpandableSection("Address", isExpanded: expandBinding("address")) {
-                            addressContent.padding(.bottom, 8)
-                        }
-                        .padding(.horizontal, 20)
-                    }
-
-                    // Document Portfolio + PDF Report cards
-                    VStack(spacing: 8) {
-                        NavigationLink {
-                            DocumentPortfolioView(vm: vm, checkId: c.id)
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "folder")
-                                Text("Document Portfolio")
-                                Spacer()
-                                let docs = c.documents ?? []
-                                let valid = docs.filter { $0.status == .valid }.count
-                                Text("\(valid)/\(docs.count)").font(Typo.meta).foregroundStyle(.secondary)
-                                Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
-                            }
-                            .font(Typo.body)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12).padding(.horizontal, 16)
-                            .background(Color.surfaceMuted)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                        }
-
-                        NavigationLink {
-                            PDFReportView(vm: vm, checkId: c.id)
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "doc.text")
-                                Text("PDF Report")
-                                Spacer()
-                                Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
-                            }
-                            .font(Typo.body)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12).padding(.horizontal, 16)
-                            .background(Color.surfaceMuted)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                        }
-                    }
-                    .padding(.horizontal, 16)
-
-                    Spacer(minLength: 80)
-                }
-            }
-
-            // Pinned review bar (agents only — collaborators see read-only)
-            if !amlRunning && !poaRunning && hasResults && !isCollaborator {
-                if c.reviewDecision != nil {
-                    // Decision already made — show change options
-                    VStack(spacing: 6) {
-                        Button { withAnimation(.smooth(duration: 0.2)) { showChangeOptions.toggle() } } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "arrow.triangle.2.circlepath").font(.system(size: 11))
-                                Text("Change Decision").font(Typo.meta)
-                            }
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity).padding(.vertical, 10)
-                        }
-                        if showChangeOptions {
-                            HStack(spacing: 8) {
-                                reviewButton("Approve", Color.clear_, .approved)
-                                reviewButton("Flag", Color.flagged, .flagged)
-                                reviewButton("Decline", Color.review, .declined)
-                            }
-                            .transition(.opacity.combined(with: .move(edge: .bottom)))
-                        }
-                    }
-                    .padding(.horizontal, 16).padding(.vertical, 6)
-                    .background(.bar)
-                } else {
-                    // No decision yet — show 3 review buttons
-                    HStack(spacing: 8) {
-                        reviewButton("Approve", Color.clear_, .approved)
-                        reviewButton("Flag", Color.flagged, .flagged)
-                        reviewButton("Decline", Color.review, .declined)
-                    }
-                    .padding(.horizontal, 16).padding(.vertical, 10)
-                    .background(.bar)
-                }
-            }
-        }
+        PersonResultsView(vm: vm, checkId: c.id)
     }
 
+    // Results view code is in PersonResultsView.swift
+
+    // Keeping expandBinding for configView usage
     private func expandBinding(_ key: String) -> Binding<Bool> {
-        Binding(
-            get: { expandedSections.contains(key) },
-            set: { if $0 { expandedSections.insert(key) } else { expandedSections.remove(key) } }
-        )
+        Binding(get: { expandedSections.contains(key) }, set: { if $0 { expandedSections.insert(key) } else { expandedSections.remove(key) } })
     }
 
-    // ── Identity Content ──
-    private var identityContent: some View {
-            VStack(alignment: .leading, spacing: 12) {
-                if let id = idResult {
-                    if let dt = id.documentType {
-                        Text(dt.replacingOccurrences(of: "_", with: " ").capitalized).font(Typo.context)
-                    }
-                    if !id.extractedFullName.isEmpty { DataRow(label: "Name", value: id.extractedFullName, bold: true) }
-                    if let v = id.documentNumber { DataRow(label: "Number", value: v) }
-                    if let v = id.dateOfBirth { DataRow(label: "DOB", value: v + (id.age.map { " (\($0))" } ?? "")) }
-                    if let v = id.nationality { DataRow(label: "Nationality", value: v.uppercased()) }
-                    if let v = id.issuingCountry ?? id.issuingStateName ?? id.issuingState { DataRow(label: "Issued by", value: v) }
-                    if let v = id.expiryDate { DataRow(label: "Expires", value: v, color: expired(v) ? .flagged : nil) }
-                    if let v = id.dateOfIssue { DataRow(label: "Issued", value: v) }
-                    if let v = id.gender { DataRow(label: "Gender", value: v) }
-                    if let v = id.placeOfBirth { DataRow(label: "Place of birth", value: v) }
-                    if let v = id.personalNumber { DataRow(label: "Personal No.", value: v) }
-                    if let v = id.formattedAddress ?? id.address, !v.isEmpty { DataRow(label: "Address", value: v) }
-                    if let w = id.warnings, !w.isEmpty {
-                        Divider()
-                        ForEach(Array(w.enumerated()), id: \.offset) { _, w in
-                            Text(w.shortDescription ?? w.risk ?? "").font(Typo.meta).foregroundStyle(Color.review)
-                        }
-                    }
-                } else {
-                    // Fallback: show data extracted from session decision
-                    if let dt = c.documentType {
-                        Text(dt.replacingOccurrences(of: "_", with: " ").capitalized).font(Typo.context)
-                    }
-                    if let v = c.extractedName, !v.isEmpty { DataRow(label: "Name", value: v, bold: true) }
-                    if let v = c.documentNumber { DataRow(label: "Number", value: v) }
-                    if let v = c.dateOfBirth { DataRow(label: "DOB", value: v) }
-                    if let v = c.nationality { DataRow(label: "Nationality", value: v.uppercased()) }
-                    if let v = c.issuingCountry { DataRow(label: "Issued by", value: v) }
-                    if let v = c.expiryDate { DataRow(label: "Expires", value: v) }
-                    if let v = c.documentIssueDate { DataRow(label: "Issued", value: v) }
-                    if let v = c.gender { DataRow(label: "Gender", value: v) }
-                    if let v = c.placeOfBirth { DataRow(label: "Place of birth", value: v) }
-                    if let v = c.personalNumber { DataRow(label: "Personal No.", value: v) }
-                    if let v = c.extractedAddress, !v.isEmpty { DataRow(label: "Address", value: v) }
-                }
-                // Images (hidden for collaborators — PII)
-                if !isCollaborator, let paths = c.documentImagePaths, !paths.isEmpty {
-                    Divider()
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
-                            ForEach(paths, id: \.self) { fn in
-                                if let d = vm.loadDocumentImage(filename: fn), let img = UIImage(data: d) {
-                                    Button {
-                                        previewImage = img; previewFilename = fn
-                                    } label: {
-                                        Image(uiImage: img).resizable().scaledToFill().frame(width: 80, height: 54).clipShape(RoundedRectangle(cornerRadius: 8))
-                                            .overlay(alignment: .bottomTrailing) {
-                                                Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 7))
-                                                    .padding(3).background(.ultraThinMaterial).clipShape(Circle()).padding(3)
-                                            }
-                                    }.buttonStyle(.plain)
-                                }
-                            }
-                        }
-                    }
-                }
-                // Invite-based verification info
-                if c.sessionId != nil && (c.documentImagePaths == nil || c.documentImagePaths?.isEmpty == true) {
-                    HStack(spacing: 10) {
-                        Image(systemName: "info.circle").font(Typo.meta).foregroundStyle(.secondary)
-                        Text("Document verified remotely via Didit. Images processed server-side.").font(Typo.meta).foregroundStyle(.secondary)
-                    }
-                    .padding(10).background(Color.surfaceMuted).clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-
-                // Notes
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("NOTES").font(Typo.meta).foregroundStyle(.secondary).tracking(0.8)
-                    TextField("Observations...", text: $notes, axis: .vertical).font(Typo.meta).lineLimit(2...4)
-                        .padding(10).background(Color.surfaceMuted).clipShape(RoundedRectangle(cornerRadius: 10))
-                    if notes != (c.agentNotes ?? "") && !notes.isEmpty {
-                        Button("Save") { vm.updateAgentNotes(checkId: c.id, notes: notes) }.font(Typo.meta)
-                    }
-                }
-            }
-
-    }
-
-    // ── Compliance Content ──
-    private var complianceContent: some View {
-            VStack(alignment: .leading, spacing: 14) {
-                if amlRunning {
-                    HStack(spacing: 10) { ProgressView(); Text("Screening in progress...").font(Typo.meta).foregroundStyle(.secondary) }
-                } else if let aml = amlResult {
-                    // Summary
-                    HStack(spacing: 16) {
-                        if let s = aml.score { RiskGauge(score: s, size: 64) }
-                        VStack(alignment: .leading, spacing: 4) {
-                            if let s = aml.status { Text(s).font(Typo.context).foregroundStyle(s == "Approved" ? Color.clear_ : s == "Declined" ? Color.flagged : Color.review) }
-                            if let h = aml.totalHits, h > 0 { Text("\(h) match\(h == 1 ? "" : "es")").font(Typo.meta).foregroundStyle(.secondary) }
-                            if c.amlMonitoring == true { Text("Monitoring active").font(Typo.meta).foregroundStyle(.secondary) }
-                        }
-                        Spacer()
-                    }
-
-                    // Hits — breathing: plain language collapsed, clean expanded
-                    if let hits = aml.hits, !hits.isEmpty {
-                        Divider()
-                        ForEach(Array(hits.prefix(10).enumerated()), id: \.offset) { idx, hit in
-                            hitView(hit, idx: idx)
-                        }
-                    }
-
-                    Button { editedName = c.extractedName ?? ""; showAMLRerun = true } label: {
-                        Text("Re-run screening").font(Typo.meta)
-                    }.foregroundStyle(.secondary)
-                } else {
-                    // AML not yet run — offer to run it
-                    VStack(spacing: 16) {
-                        Image(systemName: "shield.checkered").font(.system(size: 36)).foregroundStyle(.quaternary)
-                        Text("AML screening not performed").font(Typo.body).foregroundStyle(.secondary)
-
-                        if c.extractedName != nil {
-                            Button { Task { await runInitialAML() } } label: {
-                                Text("Run AML Screening")
-                            }
-                            .buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 24)
-                        } else {
-                            Text("Complete identity verification first").font(Typo.meta).foregroundStyle(.tertiary)
-                        }
-                    }
-                    .frame(maxWidth: .infinity).padding(.vertical, 24)
-                }
-            }
-
-    }
-
-    private func runInitialAML() async {
-        amlRunning = true
-        do {
-            let result = try await vm.runAMLScreening(checkId: c.id)
-            amlResult = result
-        } catch {
-            // AML screening failed — silently handled, user sees no result
-        }
-        amlRunning = false
-    }
-
-    // ── Hit View (proposal #5: breathing) ──
-    private func hitView(_ hit: AMLHit, idx: Int) -> some View {
-        let expanded = expandedHits.contains(idx)
-        return VStack(alignment: .leading, spacing: 0) {
-            // Collapsed: entity name + plain language summary
-            Button {
-                withAnimation(.smooth(duration: 0.2)) { if expanded { expandedHits.remove(idx) } else { expandedHits.insert(idx) } }
-            } label: {
-                HStack {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(hit.caption ?? "Unknown").font(Typo.body)
-                        Text(hitSummary(hit)).font(Typo.meta).foregroundStyle(.secondary).lineLimit(expanded ? nil : 1)
-                    }
-                    Spacer()
-                    if let ms = hit.matchScore { Text("\(ms)%").font(Typo.meta).foregroundStyle(ms > 80 ? Color.flagged : Color.review) }
-                    Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.system(size: 10)).foregroundStyle(.secondary)
-                }
-            }.buttonStyle(.plain)
-
-            // Expanded: clean two-column
-            if expanded {
-                VStack(alignment: .leading, spacing: 8) {
-                    if let ds = hit.datasets, !ds.isEmpty { DataRow(label: "Categories", value: ds.joined(separator: ", ")) }
-                    if let sb = hit.scoreBreakdown {
-                        let parts = [sb.nameScore.map { "Name \($0)" }, sb.dobScore.map { "DOB \($0)" }, sb.countryScore.map { "Country \($0)" }].compactMap { $0 }
-                        if !parts.isEmpty { DataRow(label: "Scoring", value: parts.joined(separator: " · ")) }
-                    }
-                    if let peps = hit.pepMatches, !peps.isEmpty { ForEach(Array(peps.prefix(3).enumerated()), id: \.offset) { _, p in if let pos = p.pepPosition { DataRow(label: "PEP", value: pos) } } }
-                    if let sxns = hit.sanctionMatches, !sxns.isEmpty { ForEach(Array(sxns.prefix(3).enumerated()), id: \.offset) { _, s in
-                        if let d = s.description { DataRow(label: "Sanction", value: String(d.prefix(120))) }
-                        if let url = s.sourceUrl, let link = URL(string: url) { Link(url, destination: link).font(Typo.meta).lineLimit(1) }
-                    } }
-                    if let media = hit.adverseMediaMatches, !media.isEmpty { ForEach(Array(media.prefix(3).enumerated()), id: \.offset) { _, m in
-                        if let h = m.headline { DataRow(label: "Media", value: String(h.prefix(120))) }
-                        if let url = m.sourceUrl, let link = URL(string: url) { Link(url, destination: link).font(Typo.meta).lineLimit(1) }
-                    } }
-                }
-                .padding(.top, 8).padding(.leading, 4)
-                .transition(.opacity)
-            }
-        }
-        .padding(.vertical, 10)
-    }
-
-    /// Plain language one-liner for a hit (proposal #5)
-    private func hitSummary(_ hit: AMLHit) -> String {
-        if let pep = hit.pepMatches?.first?.pepPosition { return "Possible PEP — \(pep)" }
-        if let sxn = hit.sanctionMatches?.first { return "Sanction — \(sxn.reason ?? sxn.description ?? "listed")" }
-        if let m = hit.adverseMediaMatches?.first?.headline { return "Media — \(m)" }
-        if let ds = hit.datasets, !ds.isEmpty { return ds.joined(separator: ", ") }
-        return "Watchlist match"
-    }
-
-    // ── Address Content ──
-    private var addressContent: some View {
-            VStack(alignment: .leading, spacing: 12) {
-                if poaRunning {
-                    HStack(spacing: 10) { ProgressView(); Text("Verifying address...").font(Typo.meta).foregroundStyle(.secondary) }
-                } else if let poa = c.poaStatus {
-                    DataRow(label: "Status", value: poa, color: poa == "Approved" ? Color.clear_ : Color.flagged, bold: true)
-                    if let a = c.poaAddress { DataRow(label: "Address", value: a) }
-                    if let i = c.poaIssuer { DataRow(label: "Issuer", value: i) }
-                } else {
-                    Text("No address data").font(Typo.meta).foregroundStyle(.quaternary)
-                }
-            }
-    }
-
-    // ═══════════════════════════════════════════
-    // MARK: - Review Buttons (pinned)
-    // ═══════════════════════════════════════════
-
-    private func reviewButton(_ label: String, _ color: Color, _ decision: KYCCheck.ReviewDecision) -> some View {
-        Button { pendingReview = decision } label: {
-            Text(label).font(.system(size: 12, weight: .semibold)).frame(maxWidth: .infinity).padding(.vertical, 10)
-                .background(color.opacity(0.08)).foregroundStyle(color)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-        }.buttonStyle(.plain)
-    }
-
-    // ═══════════════════════════════════════════
     // MARK: - Pipeline
     // ═══════════════════════════════════════════
 
@@ -709,15 +279,7 @@ struct VerificationSheet: View {
         } catch { self.error = error.localizedDescription; busy = false }
     }
 
-    private func rerunAML() async {
-        amlRunning = true; error = nil
-        do {
-            let opts = VerificationAPIService.AMLOptions(includeAdverseMedia: true, includeMonitoring: monitoring)
-            let (resp, raw) = try await VerificationAPIService.shared.screenAML(fullName: editedName, dateOfBirth: c.dateOfBirth, nationality: vm.toISO2(c.nationality), documentNumber: c.documentNumber, vendorData: c.id, options: opts)
-            amlResult = resp.aml; vm.updateAML(checkId: c.id, result: resp.aml, rawJSON: String(data: raw, encoding: .utf8) ?? "")
-        } catch { self.error = error.localizedDescription }
-        amlRunning = false
-    }
+    // rerunAML, exportVCard, runPoAOnly moved to PersonResultsView.swift
 
     private func loadResults() {
         if let raw = c.rawIDResponse, let d = raw.data(using: .utf8) {
@@ -899,4 +461,328 @@ struct ActivityView: UIViewControllerRepresentable {
     let items: [Any]
     func makeUIViewController(context: Context) -> UIActivityViewController { UIActivityViewController(activityItems: items, applicationActivities: nil) }
     func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
+}
+
+// MARK: - Contact & Contract Editor (Jony Ive flow)
+
+struct ContactEditorSheet: View {
+    @ObservedObject var vm: KYCViewModel
+    let checkId: String
+    let check: KYCCheck
+    @Environment(\.dismiss) private var dismiss
+
+    // Contact
+    @State private var phone = ""
+    @State private var email = ""
+    // Emergency
+    @State private var ecName = ""; @State private var ecPhone = ""; @State private var ecRelation = ""
+    // Next of kin
+    @State private var nokName = ""; @State private var nokRelation = ""
+    // Contract
+    @State private var availability: KYCCheck.AvailabilityStatus?
+    @State private var hasStart = false; @State private var hasEnd = false
+    @State private var contractStart = Date()
+    @State private var contractEnd = Calendar.current.date(byAdding: .month, value: 6, to: Date()) ?? Date()
+    // SEA fields
+    @State private var wages = ""; @State private var currency = "USD"
+    @State private var hoursOfWork = ""; @State private var leaveEntitlement = ""
+    @State private var portOfEngagement = ""; @State private var manningAgency = ""
+    @State private var cbaReference = ""; @State private var repatriationPort = ""
+    @State private var mlcCompliant: Bool? = nil
+    // SEA upload
+    @State private var showSEAFilePicker = false
+    @State private var seaExtracting = false; @State private var seaError: String?
+
+    private let currencies = ["USD", "EUR", "GBP", "NOK", "SGD", "AED", "PHP", "INR"]
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 28) {
+                    // ── SEA Upload (top — auto-fills everything below) ──
+                    VStack(spacing: 10) {
+                        if seaExtracting {
+                            HStack(spacing: 10) {
+                                ProgressView().controlSize(.small)
+                                Text("Reading contract...").font(Typo.meta).foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity).padding(.vertical, 20)
+                            .background(Color.surfaceMuted)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                        } else {
+                            Button { showSEAFilePicker = true } label: {
+                                VStack(spacing: 8) {
+                                    Image(systemName: "doc.text.viewfinder")
+                                        .font(.system(size: 24)).foregroundStyle(.primary.opacity(0.2))
+                                    Text("Upload Employment Agreement")
+                                        .font(.system(size: 13, weight: .medium))
+                                    Text("PDF or photo — auto-fills all fields below")
+                                        .font(Typo.meta).foregroundStyle(.tertiary)
+                                }
+                                .frame(maxWidth: .infinity).padding(.vertical, 18)
+                                .background(Color.surfaceMuted.opacity(0.6))
+                                .clipShape(RoundedRectangle(cornerRadius: 14))
+                                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.primary.opacity(0.06), style: StrokeStyle(lineWidth: 1, dash: [6, 4])))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        if let e = seaError { Text(e).font(Typo.meta).foregroundStyle(Color.flagged) }
+                    }
+
+                    // ── Contact ──
+                    section("Contact") {
+                        field("Phone", text: $phone, prompt: "+30 697 123 4567", keyboard: .phonePad)
+                        field("Email", text: $email, prompt: "name@example.com", keyboard: .emailAddress)
+                    }
+
+                    // ── Emergency Contact ──
+                    section("Emergency Contact") {
+                        field("Name", text: $ecName, prompt: "Full name")
+                        field("Phone", text: $ecPhone, prompt: "+30 697...", keyboard: .phonePad)
+                        field("Relationship", text: $ecRelation, prompt: "Spouse, Parent, etc.")
+                    }
+
+                    // ── Next of Kin ──
+                    section("Next of Kin") {
+                        field("Name", text: $nokName, prompt: "Full name")
+                        field("Relationship", text: $nokRelation, prompt: "Spouse, Parent, Child")
+                    }
+
+                    // ── Status ──
+                    section("Status") {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(KYCCheck.AvailabilityStatus.allCases) { s in
+                                    Button { availability = availability == s ? nil : s } label: {
+                                        Text(s.rawValue)
+                                            .font(.system(size: 11, weight: availability == s ? .semibold : .regular))
+                                            .foregroundStyle(availability == s ? .primary : .secondary)
+                                            .padding(.horizontal, 12).padding(.vertical, 8)
+                                            .background(availability == s ? Color.primary.opacity(0.08) : Color.surfaceMuted)
+                                            .clipShape(Capsule())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+
+                    // ── Contract ──
+                    section("Contract") {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Toggle("Start", isOn: $hasStart).font(Typo.meta).tint(.primary)
+                                if hasStart { DatePicker("", selection: $contractStart, displayedComponents: .date).labelsHidden() }
+                            }
+                            VStack(alignment: .leading, spacing: 4) {
+                                Toggle("End", isOn: $hasEnd).font(Typo.meta).tint(.primary)
+                                if hasEnd { DatePicker("", selection: $contractEnd, displayedComponents: .date).labelsHidden() }
+                            }
+                        }
+                    }
+
+                    // ── Wages & Terms (SEA) ──
+                    section("Wages & Terms") {
+                        HStack(spacing: 10) {
+                            field("Wages", text: $wages, prompt: "3500.00", keyboard: .decimalPad)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Currency").font(Typo.meta).foregroundStyle(.tertiary)
+                                Menu {
+                                    ForEach(currencies, id: \.self) { c in
+                                        Button(c) { currency = c }
+                                    }
+                                } label: {
+                                    HStack {
+                                        Text(currency).font(Typo.body)
+                                        Image(systemName: "chevron.up.chevron.down").font(.system(size: 8))
+                                    }
+                                    .foregroundStyle(.primary)
+                                    .padding(12)
+                                    .frame(minWidth: 80)
+                                    .background(Color.surfaceMuted)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                }
+                            }
+                        }
+                        field("Hours of Work", text: $hoursOfWork, prompt: "8 hours/day")
+                        field("Leave", text: $leaveEntitlement, prompt: "2.5 days/month")
+                    }
+
+                    // ── Maritime ──
+                    section("Maritime") {
+                        field("Port of Engagement", text: $portOfEngagement, prompt: "Manila, Piraeus...")
+                        field("Manning Agency", text: $manningAgency, prompt: "Agency name")
+                        field("CBA Reference", text: $cbaReference, prompt: "ITF TCC, etc.")
+                        field("Repatriation Port", text: $repatriationPort, prompt: "Home port")
+                        HStack {
+                            Text("MLC 2006").font(Typo.meta).foregroundStyle(.secondary)
+                            Spacer()
+                            HStack(spacing: 0) {
+                                mlcButton("Yes", value: true)
+                                mlcButton("No", value: false)
+                                mlcButton("—", value: nil)
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                    }
+
+                    Spacer(minLength: 40)
+                }
+                .padding(.horizontal, 20).padding(.top, 12)
+            }
+            .background(Color.surface.ignoresSafeArea())
+            .navigationTitle("Contact & Contract")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { save(); dismiss() }.fontWeight(.semibold)
+                }
+            }
+            .onAppear { loadExisting() }
+            .sheet(isPresented: $showSEAFilePicker) {
+                FilePicker { url in
+                    if url.startAccessingSecurityScopedResource() {
+                        defer { url.stopAccessingSecurityScopedResource() }
+                        if let data = try? Data(contentsOf: url) { Task { await extractSEA(data) } }
+                    } else {
+                        if let data = try? Data(contentsOf: url) { Task { await extractSEA(data) } }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Components
+
+    private func section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title.uppercased()).font(Typo.meta).foregroundStyle(.secondary).tracking(0.6)
+            content()
+        }
+    }
+
+    private func field(_ label: String, text: Binding<String>, prompt: String, keyboard: UIKeyboardType = .default) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label).font(Typo.meta).foregroundStyle(.tertiary)
+            TextField(prompt, text: text)
+                .font(Typo.body).keyboardType(keyboard)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(keyboard == .emailAddress ? .never : .words)
+                .padding(11)
+                .background(Color.surfaceMuted)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+        }
+    }
+
+    private func mlcButton(_ label: String, value: Bool?) -> some View {
+        Button { mlcCompliant = value } label: {
+            Text(label)
+                .font(.system(size: 11, weight: mlcCompliant == value ? .semibold : .regular))
+                .foregroundStyle(mlcCompliant == value ? .primary : .secondary)
+                .padding(.horizontal, 12).padding(.vertical, 7)
+                .background(mlcCompliant == value ? Color.primary.opacity(0.08) : Color.surfaceMuted)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - SEA Extraction
+
+    private func extractSEA(_ data: Data) async {
+        seaExtracting = true; seaError = nil
+        do {
+            let sea = try await ClaudeService.shared.extractSEA(documentData: data)
+            // Auto-fill fields from extraction
+            if let v = sea.phoneNumber, !v.isEmpty, phone.isEmpty { phone = v }
+            if let v = sea.emailAddress, !v.isEmpty, email.isEmpty { email = v }
+            if let v = sea.emergencyContactName, !v.isEmpty, ecName.isEmpty {
+                ecName = v; ecPhone = sea.emergencyContactPhone ?? ""; ecRelation = sea.emergencyContactRelation ?? ""
+            }
+            if let v = sea.nextOfKinName, !v.isEmpty, nokName.isEmpty {
+                nokName = v; nokRelation = sea.nextOfKinRelation ?? ""
+            }
+            if let v = sea.wages, !v.isEmpty, wages.isEmpty { wages = v }
+            if let v = sea.currency, !v.isEmpty { currency = v }
+            if let v = sea.hoursOfWork, !v.isEmpty, hoursOfWork.isEmpty { hoursOfWork = v }
+            if let v = sea.leaveEntitlement, !v.isEmpty, leaveEntitlement.isEmpty { leaveEntitlement = v }
+            if let v = sea.portOfEngagement, !v.isEmpty, portOfEngagement.isEmpty { portOfEngagement = v }
+            if let v = sea.manningAgency, !v.isEmpty, manningAgency.isEmpty { manningAgency = v }
+            if let v = sea.cbaReference, !v.isEmpty, cbaReference.isEmpty { cbaReference = v }
+            if let v = sea.repatriationPort, !v.isEmpty, repatriationPort.isEmpty { repatriationPort = v }
+            if let v = sea.mlcCompliant { mlcCompliant = v }
+            let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
+            if let s = sea.contractStart, let d = fmt.date(from: s), !hasStart { hasStart = true; contractStart = d }
+            if let e = sea.contractEnd, let d = fmt.date(from: e), !hasEnd { hasEnd = true; contractEnd = d }
+            Haptics.success()
+        } catch {
+            seaError = "Extraction failed: \(error.localizedDescription)"
+        }
+        seaExtracting = false
+    }
+
+    // MARK: - Load / Save
+
+    private func loadExisting() {
+        phone = check.phoneNumber ?? ""
+        email = check.emailAddress ?? ""
+        if let ec = check.emergencyContact { ecName = ec.name; ecPhone = ec.phone; ecRelation = ec.relationship }
+        if let nok = check.nextOfKin { nokName = nok.name; nokRelation = nok.relationship }
+        availability = check.availabilityStatus
+        if let s = check.contractStartDate { hasStart = true; contractStart = s }
+        if let e = check.contractEndDate { hasEnd = true; contractEnd = e }
+        wages = check.wages ?? ""; currency = check.currency ?? "USD"
+        hoursOfWork = check.hoursOfWork ?? ""; leaveEntitlement = check.leaveEntitlement ?? ""
+        portOfEngagement = check.portOfEngagement ?? ""; manningAgency = check.manningAgency ?? ""
+        cbaReference = check.cbaReference ?? ""; repatriationPort = check.repatriationPort ?? ""
+        mlcCompliant = check.mlcCompliant
+    }
+
+    private func save() {
+        vm.updatePhoneNumber(checkId: checkId, phone: phone)
+        vm.updateEmailAddress(checkId: checkId, email: email)
+        vm.updateEmergencyContact(checkId: checkId, contact: ecName.isEmpty ? nil : EmergencyContact(name: ecName, phone: ecPhone, relationship: ecRelation))
+        vm.updateNextOfKin(checkId: checkId, kin: nokName.isEmpty ? nil : NextOfKin(name: nokName, relationship: nokRelation))
+        vm.updateAvailabilityStatus(checkId: checkId, status: availability)
+        vm.updateContractDates(checkId: checkId, start: hasStart ? contractStart : nil, end: hasEnd ? contractEnd : nil)
+        // SEA fields — direct update
+        guard let i = vm.checks.firstIndex(where: { $0.id == checkId }) else { return }
+        vm.checks[i].wages = wages.isEmpty ? nil : wages
+        vm.checks[i].currency = currency
+        vm.checks[i].hoursOfWork = hoursOfWork.isEmpty ? nil : hoursOfWork
+        vm.checks[i].leaveEntitlement = leaveEntitlement.isEmpty ? nil : leaveEntitlement
+        vm.checks[i].portOfEngagement = portOfEngagement.isEmpty ? nil : portOfEngagement
+        vm.checks[i].manningAgency = manningAgency.isEmpty ? nil : manningAgency
+        vm.checks[i].cbaReference = cbaReference.isEmpty ? nil : cbaReference
+        vm.checks[i].repatriationPort = repatriationPort.isEmpty ? nil : repatriationPort
+        vm.checks[i].mlcCompliant = mlcCompliant
+        vm.saveChecks()
+        if let vid = vm.checks[i].vesselId { vm.autoPushVessel(vesselId: vid) }
+        Haptics.success()
+    }
+}
+
+// MARK: - Photo Library Transferable
+
+struct PhotoTransferable: Transferable {
+    let data: Data
+    static var transferRepresentation: some TransferRepresentation {
+        DataRepresentation(importedContentType: .jpeg) { data in
+            PhotoTransferable(data: data)
+        }
+        DataRepresentation(importedContentType: .png) { data in
+            PhotoTransferable(data: data)
+        }
+        DataRepresentation(importedContentType: .heic) { data in
+            if let img = UIImage(data: data), let jpeg = img.jpegData(compressionQuality: 0.85) {
+                return PhotoTransferable(data: jpeg)
+            }
+            return PhotoTransferable(data: data)
+        }
+        DataRepresentation(importedContentType: .image) { data in
+            if let img = UIImage(data: data), let jpeg = img.jpegData(compressionQuality: 0.85) {
+                return PhotoTransferable(data: jpeg)
+            }
+            return PhotoTransferable(data: data)
+        }
+    }
 }

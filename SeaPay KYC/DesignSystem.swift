@@ -65,6 +65,7 @@ extension Color {
 
 enum Typo {
     static let hero: Font = .system(size: 32, weight: .bold)
+    static let title: Font = .system(size: 24, weight: .bold)     // person name, section titles
     static let context: Font = .system(size: 16, weight: .semibold)
     static let stat: Font = .system(size: 18, weight: .bold, design: .rounded)
     static let body: Font = .system(size: 13, weight: .medium)
@@ -366,6 +367,31 @@ struct DataRow: View {
             Text(value).font(bold ? .system(size: 13, weight: .semibold) : Typo.body).foregroundStyle(color ?? .primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+// MARK: - Tappable Data Row (phone, email — with action)
+
+struct TappableDataRow: View {
+    let label: String
+    let value: String
+    var icon: String? = nil
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .top) {
+                Text(label).font(Typo.meta).foregroundStyle(.secondary)
+                    .frame(width: 90, alignment: .leading)
+                Text(value).font(Typo.body).foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if let icon {
+                    Image(systemName: icon).font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .buttonStyle(.plain)
     }
 }
 

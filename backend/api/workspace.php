@@ -6,6 +6,7 @@
  * POST   /api/workspace.php?action=join     — Join with workspace code
  * GET    /api/workspace.php?action=info      — Get workspace info + agents
  * POST   /api/workspace.php?action=leave     — Leave workspace
+ * POST   /api/workspace.php?action=update    — Update workspace name/scenario
  */
 
 require_once __DIR__ . '/../includes/auth.php';
@@ -139,6 +140,30 @@ switch ($action) {
             'agents' => $agents,
             'latest_version' => (int)$latest,
         ]);
+        break;
+
+    // ─── UPDATE WORKSPACE ───
+    case 'update':
+        $auth = authenticate();
+        $data = getJSON();
+        $name = trim($data['name'] ?? '');
+        $scenario = trim($data['scenario'] ?? '');
+
+        if (!$name) jsonError(400, 'Workspace name required');
+
+        $db = getDB();
+        $db->prepare("UPDATE workspaces SET name = ? WHERE id = ?")
+           ->execute([$name, $auth['workspace_id']]);
+
+        // Update scenario on all vessels in this workspace if provided
+        if ($scenario) {
+            $db->prepare("UPDATE workspace_vessels SET scenario = ? WHERE workspace_id = ?")
+               ->execute([$scenario, $auth['workspace_id']]);
+        }
+
+        logActivity($auth['workspace_id'], $auth['agent_id'], $auth['agent_name'], 'workspace_updated', 'workspace', $name);
+
+        jsonResponse(['ok' => true, 'name' => $name]);
         break;
 
     // ─── LEAVE WORKSPACE ───

@@ -7,13 +7,14 @@
 //
 
 import Foundation
+import Combine
 import os.log
 
 private let collabLogger = Logger(subsystem: "com.seapay.kyc", category: "Collaboration")
 
 // MARK: - API Models
 
-struct WorkspaceInfo: Codable, Sendable {
+struct WorkspaceInfo: Codable, Sendable, Hashable {
     let workspaceId: String
     let name: String
     let code: String
@@ -128,12 +129,17 @@ struct ActivityEvent: Codable, Identifiable, Sendable {
 // MARK: - Collaboration Service
 
 @MainActor
-final class CollaborationService {
+final class CollaborationService: ObservableObject {
     static let shared = CollaborationService()
 
     private let baseURL = "https://seapay.me/oceancheck/api"
 
-    // Persisted workspace state
+    // Persisted workspace list — agent can belong to multiple workspaces
+    @Published private(set) var storedWorkspaces: [WorkspaceInfo] = [] {
+        didSet { saveWorkspaces() }
+    }
+
+    // Currently selected workspace (for API calls)
     private var _workspace: WorkspaceInfo? {
         didSet {
             if let ws = _workspace {
@@ -154,9 +160,47 @@ final class CollaborationService {
     }
 
     init() {
+        // Load stored workspaces
+        if let data = UserDefaults.standard.data(forKey: "storedWorkspaces") {
+            storedWorkspaces = (try? JSONDecoder().decode([WorkspaceInfo].self, from: data)) ?? []
+        }
+        // Load active workspace (backward compatible)
         if let data = UserDefaults.standard.data(forKey: "activeWorkspace") {
             _workspace = try? JSONDecoder().decode(WorkspaceInfo.self, from: data)
         }
+        // Migration: if we have an active workspace but empty stored list, add it
+        if let ws = _workspace, !storedWorkspaces.contains(where: { $0.workspaceId == ws.workspaceId }) {
+            storedWorkspaces.append(ws)
+        }
+    }
+
+    // MARK: - Multi-Workspace
+
+    func selectWorkspace(_ info: WorkspaceInfo) {
+        _workspace = info
+        syncVersion = 0
+    }
+
+    func deselectWorkspace() {
+        _workspace = nil
+        syncVersion = 0
+    }
+
+    private func saveWorkspaces() {
+        let data = try? JSONEncoder().encode(storedWorkspaces)
+        UserDefaults.standard.set(data, forKey: "storedWorkspaces")
+    }
+
+    private func addToStored(_ info: WorkspaceInfo) {
+        if let i = storedWorkspaces.firstIndex(where: { $0.workspaceId == info.workspaceId }) {
+            storedWorkspaces[i] = info  // Update token/name
+        } else {
+            storedWorkspaces.append(info)
+        }
+    }
+
+    private func removeFromStored(_ workspaceId: String) {
+        storedWorkspaces.removeAll { $0.workspaceId == workspaceId }
     }
 
     // MARK: - Workspace Management
@@ -174,6 +218,7 @@ final class CollaborationService {
 
         let data = try await request("workspace.php?action=create", method: "POST", body: body)
         let info = try JSONDecoder().decode(WorkspaceInfo.self, from: data)
+        addToStored(info)
         _workspace = info
         syncVersion = 0
         return info
@@ -192,6 +237,7 @@ final class CollaborationService {
 
         let data = try await request("workspace.php?action=join", method: "POST", body: body)
         let info = try JSONDecoder().decode(WorkspaceInfo.self, from: data)
+        addToStored(info)
         _workspace = info
         syncVersion = 0
         return info
@@ -202,10 +248,25 @@ final class CollaborationService {
         return try JSONDecoder().decode(WorkspaceDetail.self, from: data)
     }
 
+    func updateWorkspace(name: String, scenario: String?) async throws {
+        var body: [String: Any] = ["name": name]
+        if let scenario { body["scenario"] = scenario }
+        _ = try await authenticatedRequest("workspace.php?action=update", method: "POST", body: body)
+
+        // Update stored workspace with new name so list + detail stay in sync
+        if let ws = _workspace {
+            let updated = WorkspaceInfo(workspaceId: ws.workspaceId, name: name, code: ws.code, token: ws.token)
+            _workspace = updated
+            addToStored(updated)
+        }
+    }
+
     func leaveWorkspace() async throws {
+        let leavingId = _workspace?.workspaceId
         _ = try await authenticatedRequest("workspace.php?action=leave", method: "POST")
         _workspace = nil
         syncVersion = 0
+        if let leavingId { removeFromStored(leavingId) }
     }
 
     func disconnect() {
@@ -297,6 +358,14 @@ final class CollaborationService {
             return snapshot
         }
         return nil
+    }
+
+    /// Returns raw snapshot dictionary for a vessel — allows callers to decode
+    /// vessels and checks independently so one bad field doesn't kill the whole pull.
+    func pullVesselRaw(vesselId: String) async throws -> [String: Any]? {
+        let data = try await authenticatedRequest("sync.php?action=pull&vessel_id=\(vesselId)")
+        let response = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return response?["snapshot"] as? [String: Any]
     }
 
     // MARK: - Workspace Vessel Management

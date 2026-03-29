@@ -29,7 +29,7 @@ struct OwnershipFlowView: View {
     @State private var analysisResult = ""
 
     // Verification
-    @State private var activeCheck: KYCCheck?
+    @State private var selectedCheckId: String?
     @State private var inviteCheck: KYCCheck?
     @State private var showReport = false
     @State private var reportData: Data?
@@ -93,7 +93,7 @@ struct OwnershipFlowView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { saveAndDismiss() } }
             }
-            .sheet(item: $activeCheck) { VerificationSheet(vm: vm, check: $0) }
+            .navigationDestination(for: String.self) { checkId in PersonView(vm: vm, checkId: checkId) }
             .sheet(item: $inviteCheck) { InviteSheet(vm: vm, check: $0) }
             .fullScreenCover(isPresented: $showCamera) { CameraCapture(result: $capturedData).ignoresSafeArea() }
             .sheet(isPresented: $showFilePicker) {
@@ -365,7 +365,7 @@ struct OwnershipFlowView: View {
                         let et: KYCCheck.EntityType = isUBO ? .ubo : p.role == .director ? .directorOfficer : p.role == .trustee ? .trustee : p.role == .settlor ? .settlor : p.role == .protector ? .protector : p.role == .beneficiary ? .beneficiary : .owner
                         let check = vm.createCheck(customerName: p.name, entityType: et, vesselId: vesselId, ownershipPercent: p.ownershipPercent > 0 ? p.ownershipPercent : nil)
                         person.wrappedValue.checkId = check.id
-                        activeCheck = check
+                        selectedCheckId = check.id // programmatic nav not used — user taps NavigationLink
                     } label: { Label("Scan Passport", systemImage: "camera.viewfinder") }
 
                     if AppConfiguration.hasWorkflow && vm.isOnline {

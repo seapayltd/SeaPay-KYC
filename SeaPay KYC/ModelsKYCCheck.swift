@@ -5,6 +5,21 @@
 
 import Foundation
 
+// MARK: - Crew Management Types
+
+struct EmergencyContact: Codable, Hashable {
+    var name: String
+    var phone: String
+    var relationship: String
+}
+
+struct NextOfKin: Codable, Hashable {
+    var name: String
+    var relationship: String
+}
+
+// MARK: - KYC Check
+
 struct KYCCheck: Identifiable, Codable, Hashable {
     static func == (lhs: KYCCheck, rhs: KYCCheck) -> Bool {
         lhs.id == rhs.id && lhs.status == rhs.status && lhs.amlStatus == rhs.amlStatus && lhs.poaStatus == rhs.poaStatus && lhs.reviewDecision == rhs.reviewDecision
@@ -44,6 +59,34 @@ struct KYCCheck: Identifiable, Codable, Hashable {
     var registrationNumber: String?
     var jurisdiction: String?
     var ownershipPercent: Double?
+
+    // Crew management — contact
+    var phoneNumber: String?
+    var emailAddress: String?
+    var emergencyContact: EmergencyContact?
+    var nextOfKin: NextOfKin?
+
+    // Crew management — contract / SEA
+    var contractStartDate: Date?
+    var contractEndDate: Date?
+    var availabilityStatus: AvailabilityStatus?
+    var wages: String?
+    var currency: String?
+    var hoursOfWork: String?
+    var leaveEntitlement: String?
+    var portOfEngagement: String?
+    var manningAgency: String?
+    var cbaReference: String?
+    var mlcCompliant: Bool?
+    var repatriationPort: String?
+
+    enum AvailabilityStatus: String, Codable, CaseIterable, Identifiable {
+        case active = "Active"
+        case onLeave = "On Leave"
+        case rotation = "Rotation"
+        case terminated = "Terminated"
+        var id: String { rawValue }
+    }
 
     enum EntityType: String, Codable, CaseIterable, Identifiable {
         // Crew (on-board)
@@ -262,11 +305,47 @@ struct KYCCheck: Identifiable, Codable, Hashable {
         case createdAt, completedAt, agentNotes, sessionId, hostedVerifyURL, vesselId, crewRank, documents, profilePhoto, documentImagePaths
         case latitude, longitude
         case companyName, registrationNumber, jurisdiction, ownershipPercent
+        case phoneNumber, emailAddress, emergencyContact, nextOfKin
+        case contractStartDate, contractEndDate, availabilityStatus
+        case wages, currency, hoursOfWork, leaveEntitlement
+        case portOfEngagement, manningAgency, cbaReference, mlcCompliant, repatriationPort
         case expectedDocType, investigationDepth
         case extractedName, documentType, documentNumber, dateOfBirth, expiryDate, nationality, idWarnings
         case amlStatus, amlScore, amlHitCount, amlMonitoring
         case poaStatus, poaAddress, poaIssuer, poaWarnings
         case rawIDResponse, rawAMLResponse, rawPoAResponse
         case reviewDecision, reviewReason, reviewedAt, reviewedBy
+        case issuingCountry, gender, documentIssueDate, placeOfBirth, personalNumber, extractedAddress
+    }
+
+
+    // MARK: - Computed Helpers
+
+    var nationalityFlag: String? {
+        guard let code = nationality, code.count >= 2 else { return nil }
+        let iso = String(code.prefix(2)).uppercased()
+        let base: UInt32 = 127397
+        let scalars = iso.unicodeScalars.compactMap { UnicodeScalar(base + $0.value) }
+        guard scalars.count == 2 else { return nil }
+        return scalars.map { String($0) }.joined()
+    }
+
+    var documentReadiness: (completed: Int, total: Int)? {
+        guard let docs = documents, !docs.isEmpty else { return nil }
+        let active = docs.filter { !$0.isArchived }
+        guard !active.isEmpty else { return nil }
+        let completed = active.filter { !$0.imagePaths.isEmpty }.count
+        return (completed, active.count)
+    }
+
+    enum ExpiryUrgency { case expired, expiringSoon, ok }
+
+    var expiryUrgency: ExpiryUrgency? {
+        guard let exp = expiryDate else { return nil }
+        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
+        guard let date = fmt.date(from: exp) else { return nil }
+        if date < Date() { return .expired }
+        if date < Calendar.current.date(byAdding: .day, value: 90, to: Date()) ?? Date() { return .expiringSoon }
+        return .ok
     }
 }

@@ -30,16 +30,27 @@ enum BiometricService {
         set { UserDefaults.standard.set(newValue, forKey: "biometricLockEnabled") }
     }
 
-    /// Prompt the user for biometric authentication.
-    /// Returns true if authenticated, false if failed or cancelled.
+    /// Prompt the user for biometric authentication with automatic passcode fallback.
+    /// Returns true if authenticated, false if cancelled.
     static func authenticate(reason: String = "Unlock OceanCheck to access compliance data") async -> Bool {
         let context = LAContext()
-        context.localizedCancelTitle = "Use Passcode"
+        // Don't override localizedCancelTitle — let iOS show its default
+        // "Enter Password" fallback button which triggers passcode entry automatically.
+        context.localizedFallbackTitle = "Use Passcode"
 
         guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: nil) else { return false }
 
         do {
             return try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
+        } catch let error as LAError where error.code == .userFallback {
+            // User tapped "Use Passcode" — re-prompt with device passcode only
+            let passcodeContext = LAContext()
+            passcodeContext.localizedCancelTitle = "Cancel"
+            do {
+                return try await passcodeContext.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
+            } catch {
+                return false
+            }
         } catch {
             return false
         }

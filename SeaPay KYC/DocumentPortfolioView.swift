@@ -127,9 +127,32 @@ struct DocumentPortfolioView: View {
                     }
                 }
 
-                // Add custom document
-                Button {
-                    addingDocType = .other
+                // Add document — type picker
+                Menu {
+                    Button { addingDocType = .proofOfAddress } label: {
+                        Label("Proof of Address", systemImage: "house")
+                    }
+                    Button { addingDocType = .passport } label: {
+                        Label("Passport", systemImage: "person.text.rectangle")
+                    }
+                    Button { addingDocType = .seamansBook } label: {
+                        Label("Seaman's Book", systemImage: "book")
+                    }
+                    Button { addingDocType = .medicalENG1 } label: {
+                        Label("Medical Certificate", systemImage: "cross.case")
+                    }
+                    Divider()
+                    Menu("More Document Types") {
+                        ForEach(MaritimeDocType.allCases.filter { ![.proofOfAddress, .passport, .seamansBook, .medicalENG1, .other].contains($0) }) { dt in
+                            Button { addingDocType = dt } label: {
+                                Label(dt.displayName, systemImage: dt.icon)
+                            }
+                        }
+                    }
+                    Divider()
+                    Button { addingDocType = .other } label: {
+                        Label("Other", systemImage: "doc")
+                    }
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "plus.circle").font(Typo.body)
@@ -316,9 +339,23 @@ struct QuickAddSheet: View {
                     }
                     .padding(.horizontal, 32)
 
-                    Button { saveDoc() } label: { Text("Save") }
-                        .buttonStyle(PrimaryButtonStyle())
-                        .padding(.horizontal, 32)
+                    if let saveError {
+                        Text(saveError).font(Typo.meta).foregroundStyle(Color.flagged)
+                            .padding(.horizontal, 32)
+                    }
+
+                    if docType == .proofOfAddress && capturedImage != nil {
+                        Text("Saving will automatically verify this address via Didit")
+                            .font(Typo.meta).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center).padding(.horizontal, 32)
+                    }
+
+                    Button { saveDoc() } label: {
+                        Text(isSaving ? "Verifying..." : "Save")
+                    }
+                    .buttonStyle(PrimaryButtonStyle(isEnabled: !isSaving))
+                    .disabled(isSaving)
+                    .padding(.horizontal, 32)
 
                     Spacer(minLength: 32)
                 }
@@ -350,14 +387,30 @@ struct QuickAddSheet: View {
         }
     }
 
+    @State private var isSaving = false
+    @State private var saveError: String?
+
     private func saveDoc() {
+        // PoA docs trigger Didit verification automatically
+        if docType == .proofOfAddress, let data = capturedImage {
+            Task { await savePoAWithVerification(data) }
+            return
+        }
+
+        // SEA docs trigger full contract extraction
+        if docType == .seafarerEmployment, let data = capturedImage {
+            Task { await saveSEAWithExtraction(data) }
+            return
+        }
+
+        // All other docs: save immediately, then OCR-enrich in background
+        let imageData = capturedImage
         var paths: [String] = []
-        if let data = capturedImage {
+        if let data = imageData {
             let filename = "\(checkId)_\(docType.rawValue.prefix(10).replacingOccurrences(of: " ", with: "_"))_\(UUID().uuidString.prefix(6)).jpg"
             let url = vm.imagesDir.appendingPathComponent(filename)
             try? data.write(to: url)
             paths.append(filename)
-            // Auto-upload to workspace if connected
             let vesselId = vm.checks.first(where: { $0.id == checkId })?.vesselId
             vm.queueFileForSync(filename: filename, vesselId: vesselId)
         }
@@ -374,7 +427,73 @@ struct QuickAddSheet: View {
         } else {
             vm.addDocument(to: checkId, document: doc)
         }
+
+        // Background OCR enrichment — don't block UI
+        if let data = imageData, docType != .other {
+            let docId = doc.id
+            let cid = checkId
+            let dt = docType.displayName
+            Task {
+                if let extraction = try? await ClaudeService.shared.extractMaritimeDocument(imageData: data, docType: dt) {
+                    await MainActor.run {
+                        vm.enrichDocumentWithOCR(checkId: cid, documentId: docId, extraction: extraction)
+                    }
+                }
+            }
+        }
+
         dismiss()
+    }
+
+    private func saveSEAWithExtraction(_ imageData: Data) async {
+        isSaving = true; saveError = nil
+        // Save the document first
+        let filename = "\(checkId)_SEA_\(UUID().uuidString.prefix(6)).jpg"
+        let url = vm.imagesDir.appendingPathComponent(filename)
+        try? imageData.write(to: url)
+        let vesselId = vm.checks.first(where: { $0.id == checkId })?.vesselId
+        vm.queueFileForSync(filename: filename, vesselId: vesselId)
+
+        let doc = CrewDocument(
+            type: .seafarerEmployment,
+            imagePaths: [filename],
+            documentNumber: docNumber.isEmpty ? nil : docNumber,
+            issueDate: hasIssueDate ? issueDate : nil,
+            expiryDate: hasExpiry ? expiryDate : nil,
+            issuingAuthority: issuingAuthority.isEmpty ? nil : issuingAuthority
+        )
+        vm.addDocument(to: checkId, document: doc)
+
+        // Run SEA extraction via Claude
+        do {
+            let sea = try await ClaudeService.shared.extractSEA(documentData: imageData)
+            vm.updateContractFromSEA(checkId: checkId, sea: sea)
+            Haptics.success()
+        } catch {
+            saveError = "Contract extraction: \(error.localizedDescription)"
+            // Document is still saved — only extraction failed
+        }
+        isSaving = false
+        if saveError == nil { dismiss() }
+    }
+
+    private func savePoAWithVerification(_ imageData: Data) async {
+        isSaving = true; saveError = nil
+        let check = vm.checks.first(where: { $0.id == checkId })
+        do {
+            _ = try await vm.runPoA(
+                checkId: checkId,
+                documentImage: imageData,
+                expectedName: check?.extractedName,
+                expectedAddress: nil
+            ) { _ in }
+            // runPoA already adds the CrewDocument to the portfolio
+            Haptics.success()
+            dismiss()
+        } catch {
+            saveError = error.localizedDescription
+            isSaving = false
+        }
     }
 }
 

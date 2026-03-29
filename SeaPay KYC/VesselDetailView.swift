@@ -13,7 +13,7 @@ import PDFKit
 struct VesselDetailView: View {
     @ObservedObject var vm: KYCViewModel
     let vessel: Vessel
-    @State private var activeCheck: KYCCheck?
+    @State private var selectedCheckId: String?
     @State private var inviteCheck: KYCCheck?
     @State private var exportPDFPath: NavigationPath = NavigationPath()
     @State private var showExportPDF = false
@@ -160,7 +160,7 @@ struct VesselDetailView: View {
             // Crew
             Section {
                 ForEach(seafarerCrew) { check in
-                    Button { activeCheck = check } label: { crewRow(check) }
+                    NavigationLink(value: check.id) { crewRow(check) }
                         .contextMenu { personContextMenu(check) }
                         .swipeActions(edge: .leading) {
                             if vm.vessels.count > 1 {
@@ -187,7 +187,7 @@ struct VesselDetailView: View {
             if !shoreBasedPersonnel.isEmpty {
                 Section {
                     ForEach(shoreBasedPersonnel) { check in
-                        Button { activeCheck = check } label: { crewRow(check) }
+                        NavigationLink(value: check.id) { crewRow(check) }
                             .contextMenu { personContextMenu(check) }
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) { checkToDelete = check } label: { Label("Delete", systemImage: "trash") }
@@ -224,7 +224,7 @@ struct VesselDetailView: View {
                 }
 
                 ForEach(complianceEntities) { check in
-                    Button { activeCheck = check } label: { crewRow(check) }
+                    NavigationLink(value: check.id) { crewRow(check) }
                         .contextMenu { personContextMenu(check) }
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) { checkToDelete = check } label: { Label("Delete", systemImage: "trash") }
@@ -261,7 +261,7 @@ struct VesselDetailView: View {
         } message: {
             Text("This will delete \(v.name) and unlink all crew. Crew records will be preserved but unassigned.")
         }
-        .sheet(item: $activeCheck) { VerificationSheet(vm: vm, check: $0) }
+        .navigationDestination(for: String.self) { checkId in PersonView(vm: vm, checkId: checkId) }
         .sheet(item: $inviteCheck) { InviteSheet(vm: vm, check: $0) }
         .navigationDestination(isPresented: $showExportPDF) { ExportPreviewView(vm: vm, vesselId: vessel.id, type: .pdf) }
         .navigationDestination(isPresented: $showExportCSV) { ExportPreviewView(vm: vm, vesselId: vessel.id, type: .csv) }
@@ -271,7 +271,7 @@ struct VesselDetailView: View {
         .sheet(isPresented: $showAddCrew) { AddCrewSheet(vm: vm, vesselId: vessel.id, onCreated: { check, method in
             showAddCrew = false
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                if method == .invite { inviteCheck = check } else { activeCheck = check }
+                if method == .invite { inviteCheck = check } else { selectedCheckId = check.id }
             }
         }) }
         .sheet(isPresented: $showAssignExisting) { AssignExistingSheet(vm: vm, vesselId: vessel.id) }
@@ -300,7 +300,7 @@ struct VesselDetailView: View {
         .sheet(isPresented: $showAddCompliance) {
             AddComplianceSheet(vm: vm, vesselId: vessel.id) { check in
                 showAddCompliance = false
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { activeCheck = check }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { selectedCheckId = check.id }
             }
         }
     }

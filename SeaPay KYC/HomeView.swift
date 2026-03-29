@@ -13,7 +13,7 @@ struct HomeView: View {
     @ObservedObject var vm: KYCViewModel
     var appState: AppState
 
-    @State private var activeCheck: KYCCheck?
+    @State private var selectedCheckId: String?
     @State private var inviteCheck: KYCCheck?
     @State private var showSettings = false
     @State private var showAddVessel = false
@@ -104,10 +104,10 @@ struct HomeView: View {
                     }
                 }
                 .background(Color.surface.ignoresSafeArea())
+                .navigationDestination(for: String.self) { checkId in PersonView(vm: vm, checkId: checkId) }
             }
         }
         .searchable(text: $searchText, placement: .sidebar, prompt: "Search")
-        .sheet(item: $activeCheck) { VerificationSheet(vm: vm, check: $0) }
         .sheet(item: $inviteCheck) { InviteSheet(vm: vm, check: $0) }
         .sheet(isPresented: $showAddVessel) { VesselSheet(vm: vm) }
         .sheet(isPresented: $showBatchInvite) { BatchInviteSheet(vm: vm) }
@@ -117,7 +117,7 @@ struct HomeView: View {
             AddCrewSheet(vm: vm, vesselId: vessel.id) { check, method in
                 selectedVesselForAdd = nil
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                    if method == .invite { inviteCheck = check } else { activeCheck = check }
+                    if method == .invite { inviteCheck = check } else { selectedCheckId = check.id }
                 }
             }
         }
@@ -153,6 +153,7 @@ struct HomeView: View {
                     .navigationBarTitleDisplayMode(.large)
                     .toolbar { settingsToolbar; if !isCollaborator { addButtonToolbar }; moreActionsToolbar }
                     .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search vessels")
+                    .navigationDestination(for: String.self) { checkId in PersonView(vm: vm, checkId: checkId) }
                 }
                 .tabItem { Label("Vessels", systemImage: "ferry") }
                 .tag(0)
@@ -169,18 +170,19 @@ struct HomeView: View {
                 .navigationBarTitleDisplayMode(.large)
                 .toolbar { settingsToolbar; if !isCollaborator { addButtonToolbar } }
                 .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search crew")
+                .navigationDestination(for: String.self) { checkId in PersonView(vm: vm, checkId: checkId) }
             }
             .tabItem { Label("People", systemImage: "person.3") }
             .tag(1)
 
-            // Fleet
+            // Workspace
             NavigationStack {
-                FleetTabView(vm: vm)
-                    .navigationTitle("Fleet")
+                WorkspaceTabView(vm: vm)
+                    .navigationTitle("Workspace")
                     .navigationBarTitleDisplayMode(.large)
                     .toolbar { settingsToolbar }
             }
-            .tabItem { Label("Fleet", systemImage: "person.3.sequence") }
+            .tabItem { Label("Workspace", systemImage: "person.3.sequence") }
             .tag(2)
         }
         .sheet(isPresented: $showAddMenu) {
@@ -190,7 +192,6 @@ struct HomeView: View {
                            onImportCSV: { showAddMenu = false; showBatchImport = true })
                 .presentationDetents([.medium])
         }
-        .sheet(item: $activeCheck) { VerificationSheet(vm: vm, check: $0) }
         .sheet(item: $inviteCheck) { InviteSheet(vm: vm, check: $0) }
         .sheet(isPresented: $showSettings) { NavigationStack { SettingsSheet(vm: vm, appState: appState) } }
         .sheet(isPresented: $showAddVessel) { VesselSheet(vm: vm) }
@@ -201,7 +202,7 @@ struct HomeView: View {
                 AddCrewSheet(vm: vm, vesselId: vessel.id) { check, method in
                     selectedVesselForAdd = nil
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                        if method == .invite { inviteCheck = check } else { activeCheck = check }
+                        if method == .invite { inviteCheck = check } else { selectedCheckId = check.id }
                     }
                 }
             }
@@ -445,7 +446,7 @@ struct HomeView: View {
                         .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 6)
 
                         ForEach(checks) { check in
-                            Button { activeCheck = check } label: {
+                            NavigationLink(value: check.id) {
                                 checkRow(check)
                             }
                             .buttonStyle(.plain)
@@ -491,6 +492,9 @@ struct HomeView: View {
             check.customerName.localizedCaseInsensitiveContains(searchText) ||
             (check.documentNumber ?? "").localizedCaseInsensitiveContains(searchText) ||
             (check.crewRank?.rawValue ?? "").localizedCaseInsensitiveContains(searchText) ||
+            (check.nationality ?? "").localizedCaseInsensitiveContains(searchText) ||
+            (check.phoneNumber ?? "").localizedCaseInsensitiveContains(searchText) ||
+            (check.emailAddress ?? "").localizedCaseInsensitiveContains(searchText) ||
             (check.vesselId.flatMap { vid in vm.vessels.first(where: { $0.id == vid })?.name } ?? "").localizedCaseInsensitiveContains(searchText)
         }
     }
@@ -520,8 +524,14 @@ struct HomeView: View {
         HStack(spacing: 14) {
             avatarView(check, size: 40)
             VStack(alignment: .leading, spacing: 3) {
+                // Line 1: Name
                 Text(check.displayName).font(.system(size: 14, weight: .medium)).lineLimit(1)
-                HStack(spacing: 6) {
+
+                // Line 2: Flag + Rank/Entity + Vessel
+                HStack(spacing: 5) {
+                    if let flag = check.nationalityFlag {
+                        Text(flag).font(.system(size: 12))
+                    }
                     if check.entityType != .seafarer {
                         Text(check.entityType.rawValue).font(.system(size: 11)).foregroundStyle(.secondary)
                     } else if let rank = check.crewRank {
@@ -529,7 +539,32 @@ struct HomeView: View {
                     }
                     if let vessel = check.vesselId.flatMap({ vid in vm.vessels.first(where: { $0.id == vid }) }) {
                         Text("·").foregroundStyle(.quaternary)
-                        Text(vessel.name).font(.system(size: 11)).foregroundStyle(.tertiary)
+                        Text(vessel.name).font(.system(size: 11)).foregroundStyle(.tertiary).lineLimit(1)
+                    }
+                }
+
+                // Line 3: Indicators (only when noteworthy)
+                let readiness = check.documentReadiness
+                let urgency = check.expiryUrgency
+                if readiness != nil || (urgency != nil && urgency != .ok) {
+                    HStack(spacing: 8) {
+                        if let r = readiness {
+                            HStack(spacing: 3) {
+                                Image(systemName: "doc").font(.system(size: 9))
+                                Text("\(r.completed)/\(r.total)")
+                                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                            }
+                            .foregroundStyle(r.completed == r.total ? Color.clear_ : .secondary)
+                        }
+                        if let u = urgency, u != .ok {
+                            HStack(spacing: 3) {
+                                Image(systemName: u == .expired ? "xmark.circle" : "exclamationmark.triangle")
+                                    .font(.system(size: 9))
+                                Text(u == .expired ? "Expired" : "Expiring")
+                                    .font(.system(size: 10, weight: .medium))
+                            }
+                            .foregroundStyle(u == .expired ? Color.flagged : Color.review)
+                        }
                     }
                 }
             }
@@ -690,7 +725,7 @@ private extension DateFormatter {
 
 struct ExpiryDetailView: View {
     @ObservedObject var vm: KYCViewModel
-    @State private var activeCheck: KYCCheck?
+    @State private var selectedCheckId: String?
     @State private var selectedVesselDoc: (vesselId: String, doc: CrewDocument)?
 
     var body: some View {
@@ -731,7 +766,7 @@ struct ExpiryDetailView: View {
         .listStyle(.insetGrouped)
         .navigationTitle("Document Expiry")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(item: $activeCheck) { VerificationSheet(vm: vm, check: $0) }
+        .navigationDestination(for: String.self) { checkId in PersonView(vm: vm, checkId: checkId) }
         .sheet(isPresented: Binding(
             get: { selectedVesselDoc != nil },
             set: { if !$0 { selectedVesselDoc = nil } }
@@ -762,7 +797,7 @@ struct ExpiryDetailView: View {
     }
 
     private func idRow(_ check: KYCCheck, color: Color) -> some View {
-        Button { activeCheck = check } label: {
+        NavigationLink(value: check.id) {
             HStack {
                 RoundedRectangle(cornerRadius: 1.5).fill(color)
                     .frame(width: 3, height: 28)
@@ -779,7 +814,7 @@ struct ExpiryDetailView: View {
     }
 
     private func docRow(_ check: KYCCheck, _ doc: CrewDocument, color: Color) -> some View {
-        Button { activeCheck = check } label: {
+        NavigationLink(value: check.id) {
             HStack {
                 RoundedRectangle(cornerRadius: 1.5).fill(color)
                     .frame(width: 3, height: 28)

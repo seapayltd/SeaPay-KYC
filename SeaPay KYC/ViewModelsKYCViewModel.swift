@@ -433,7 +433,11 @@ class KYCViewModel: ObservableObject {
     }
 
     func documentPortfolio(for check: KYCCheck) -> [PortfolioItem] {
-        let required = Set(requiredDocuments(for: check))
+        var required = Set(requiredDocuments(for: check))
+        // Always show PoA slot when a PoA verification exists or depth includes it
+        if check.poaStatus != nil || check.investigationDepth == .idAmlPoa {
+            required.insert(.proofOfAddress)
+        }
         let active = (check.documents ?? []).filter { !$0.isArchived }
         let byType = Dictionary(grouping: active, by: \.type).compactMapValues(\.first)
         var items: [PortfolioItem] = []
@@ -444,6 +448,109 @@ class KYCViewModel: ObservableObject {
             items.append(PortfolioItem(type: doc.type, document: doc, required: false))
         }
         return items
+    }
+
+    // MARK: - Crew Management Updates
+
+    func updatePhoneNumber(checkId: String, phone: String) {
+        guard let i = checkIndex(checkId) else { return }
+        checks[i].phoneNumber = phone.isEmpty ? nil : phone; saveChecks()
+        if let vid = checks[i].vesselId { autoPushVessel(vesselId: vid) }
+    }
+
+    func updateEmailAddress(checkId: String, email: String) {
+        guard let i = checkIndex(checkId) else { return }
+        checks[i].emailAddress = email.isEmpty ? nil : email; saveChecks()
+        if let vid = checks[i].vesselId { autoPushVessel(vesselId: vid) }
+    }
+
+    func updateEmergencyContact(checkId: String, contact: EmergencyContact?) {
+        guard let i = checkIndex(checkId) else { return }
+        checks[i].emergencyContact = contact; saveChecks()
+        if let vid = checks[i].vesselId { autoPushVessel(vesselId: vid) }
+    }
+
+    func updateNextOfKin(checkId: String, kin: NextOfKin?) {
+        guard let i = checkIndex(checkId) else { return }
+        checks[i].nextOfKin = kin; saveChecks()
+        if let vid = checks[i].vesselId { autoPushVessel(vesselId: vid) }
+    }
+
+    func updateContractDates(checkId: String, start: Date?, end: Date?) {
+        guard let i = checkIndex(checkId) else { return }
+        checks[i].contractStartDate = start; checks[i].contractEndDate = end; saveChecks()
+        if let vid = checks[i].vesselId { autoPushVessel(vesselId: vid) }
+    }
+
+    func updateAvailabilityStatus(checkId: String, status: KYCCheck.AvailabilityStatus?) {
+        guard let i = checkIndex(checkId) else { return }
+        checks[i].availabilityStatus = status; saveChecks()
+        if let vid = checks[i].vesselId { autoPushVessel(vesselId: vid) }
+    }
+
+    func updateContractFromSEA(checkId: String, sea: ClaudeService.SEAExtraction) {
+        guard let i = checkIndex(checkId) else { return }
+        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
+        if let w = sea.wages { checks[i].wages = w }
+        if let c = sea.currency { checks[i].currency = c }
+        if let h = sea.hoursOfWork { checks[i].hoursOfWork = h }
+        if let l = sea.leaveEntitlement { checks[i].leaveEntitlement = l }
+        if let p = sea.portOfEngagement { checks[i].portOfEngagement = p }
+        if let m = sea.manningAgency { checks[i].manningAgency = m }
+        if let c = sea.cbaReference { checks[i].cbaReference = c }
+        if let m = sea.mlcCompliant { checks[i].mlcCompliant = m }
+        if let r = sea.repatriationPort { checks[i].repatriationPort = r }
+        if let s = sea.contractStart, let d = fmt.date(from: s) { checks[i].contractStartDate = d }
+        if let e = sea.contractEnd, let d = fmt.date(from: e) { checks[i].contractEndDate = d }
+        // Contact info — only fill if not already set
+        if checks[i].phoneNumber == nil, let p = sea.phoneNumber, !p.isEmpty { checks[i].phoneNumber = p }
+        if checks[i].emailAddress == nil, let e = sea.emailAddress, !e.isEmpty { checks[i].emailAddress = e }
+        if checks[i].emergencyContact == nil, let n = sea.emergencyContactName, !n.isEmpty {
+            checks[i].emergencyContact = EmergencyContact(name: n, phone: sea.emergencyContactPhone ?? "", relationship: sea.emergencyContactRelation ?? "")
+        }
+        if checks[i].nextOfKin == nil, let n = sea.nextOfKinName, !n.isEmpty {
+            checks[i].nextOfKin = NextOfKin(name: n, relationship: sea.nextOfKinRelation ?? "")
+        }
+        saveChecks()
+        if let vid = checks[i].vesselId { autoPushVessel(vesselId: vid) }
+    }
+
+    /// Enrich a document with OCR-extracted data and update the check's fields
+    func enrichDocumentWithOCR(checkId: String, documentId: String, extraction: ClaudeService.DocExtraction) {
+        guard let ci = checkIndex(checkId) else { return }
+        guard var docs = checks[ci].documents,
+              let di = docs.firstIndex(where: { $0.id == documentId }) else { return }
+
+        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
+
+        // Enrich the document itself
+        if docs[di].documentNumber == nil, let v = extraction.documentNumber, !v.isEmpty { docs[di].documentNumber = v }
+        if docs[di].issuingAuthority == nil, let v = extraction.issuingAuthority, !v.isEmpty { docs[di].issuingAuthority = v }
+        if docs[di].issueDate == nil, let v = extraction.issueDate, let d = fmt.date(from: v) { docs[di].issueDate = d }
+        if docs[di].expiryDate == nil, let v = extraction.expiryDate, let d = fmt.date(from: v) { docs[di].expiryDate = d }
+
+        // Build notes from extra extracted info
+        var extras: [String] = []
+        if let v = extraction.certificateGrade, !v.isEmpty { extras.append("Grade: \(v)") }
+        if let v = extraction.flagState, !v.isEmpty { extras.append("Flag: \(v)") }
+        if let v = extraction.restrictions, !v.isEmpty { extras.append("Restrictions: \(v)") }
+        if let v = extraction.notes, !v.isEmpty { extras.append(v) }
+        if !extras.isEmpty { docs[di].notes = extras.joined(separator: " · ") }
+
+        checks[ci].documents = docs
+
+        // Enrich the check itself from holder info
+        if let name = extraction.holderName, !name.isEmpty, checks[ci].extractedName == nil {
+            checks[ci].customerName = name
+        }
+        if let rank = extraction.rank, !rank.isEmpty, checks[ci].crewRank == nil {
+            if let matched = CrewRank.allCases.first(where: { $0.rawValue.localizedCaseInsensitiveContains(rank) || rank.localizedCaseInsensitiveContains($0.rawValue) }) {
+                checks[ci].crewRank = matched
+            }
+        }
+
+        saveChecks()
+        if let vid = checks[ci].vesselId { autoPushVessel(vesselId: vid) }
     }
 
     func setCrewRank(_ rank: CrewRank, for checkId: String) {
@@ -592,6 +699,45 @@ class KYCViewModel: ObservableObject {
         try? imageData.write(to: imagesDir.appendingPathComponent(filename))
         checks[i].profilePhoto = filename; saveChecks()
         queueFileForSync(filename: filename, vesselId: checks[i].vesselId)
+        if let vid = checks[i].vesselId { autoPushVessel(vesselId: vid) }
+    }
+
+    // MARK: - vCard Generation
+
+    func generateVCard(for check: KYCCheck) -> Data? {
+        guard check.phoneNumber != nil || check.emailAddress != nil else { return nil }
+        let name = check.displayName
+        let parts = name.split(separator: " ", maxSplits: 1)
+        let first = parts.first.map(String.init) ?? name
+        let last = parts.count > 1 ? String(parts[1]) : ""
+
+        var lines = [
+            "BEGIN:VCARD",
+            "VERSION:3.0",
+            "FN:\(name)",
+            "N:\(last);\(first);;;",
+        ]
+        if let phone = check.phoneNumber, !phone.isEmpty {
+            lines.append("TEL;TYPE=CELL:\(phone)")
+        }
+        if let email = check.emailAddress, !email.isEmpty {
+            lines.append("EMAIL;TYPE=WORK:\(email)")
+        }
+        if let nat = check.nationality { lines.append("NOTE:Nationality: \(nat)") }
+        if let rank = check.crewRank { lines.append("TITLE:\(rank.rawValue)") }
+        if let org = check.companyName { lines.append("ORG:\(org)") }
+        if let ec = check.emergencyContact {
+            lines.append("X-ICE-NAME:\(ec.name)")
+            lines.append("X-ICE-PHONE:\(ec.phone)")
+            lines.append("X-ICE-RELATION:\(ec.relationship)")
+        }
+        // Profile photo as base64 JPEG
+        if let photo = check.profilePhoto, let data = loadDocumentImage(filename: photo) {
+            let b64 = data.base64EncodedString()
+            lines.append("PHOTO;ENCODING=b;TYPE=JPEG:\(b64)")
+        }
+        lines.append("END:VCARD")
+        return lines.joined(separator: "\r\n").data(using: .utf8)
     }
 
     // MARK: - Create Check
@@ -738,8 +884,54 @@ class KYCViewModel: ObservableObject {
                 documentNumber: id.documentNumber, expiryDate: id.expiryDate.flatMap { fmt.date(from: $0) }, issuingAuthority: id.issuingCountry))
         }
         checks[i].documents = docs
+
+        // Auto-crop face from ID photo for profile picture (runs in background)
         if checks[i].profilePhoto == nil, let firstPath = checks[i].documentImagePaths?.first {
+            // Set full image as placeholder immediately
             checks[i].profilePhoto = firstPath
+            // Then crop face in background via Claude
+            let checkId = checks[i].id
+            if let imageData = loadDocumentImage(filename: firstPath) {
+                Task {
+                    await extractAndSetFacePhoto(checkId: checkId, imageData: imageData)
+                }
+            }
+        }
+    }
+
+    /// Uses Claude to detect the face region in an ID document and crops it for the profile photo
+    func extractAndSetFacePhoto(checkId: String, imageData: Data) async {
+        do {
+            let bounds = try await ClaudeService.shared.detectFaceBounds(imageData: imageData)
+            guard bounds.found,
+                  let bx = bounds.x, let by = bounds.y,
+                  let bw = bounds.width, let bh = bounds.height,
+                  bw > 0.05, bh > 0.05,
+                  let uiImage = UIImage(data: imageData),
+                  let cgImage = uiImage.cgImage else { return }
+
+            let imgW = CGFloat(cgImage.width)
+            let imgH = CGFloat(cgImage.height)
+            let cropRect = CGRect(
+                x: max(0, bx * Double(imgW)),
+                y: max(0, by * Double(imgH)),
+                width: min(bw * Double(imgW), Double(imgW)),
+                height: min(bh * Double(imgH), Double(imgH))
+            )
+
+            guard let cropped = cgImage.cropping(to: cropRect) else { return }
+            let croppedImage = UIImage(cgImage: cropped)
+            guard let jpegData = croppedImage.jpegData(compressionQuality: 0.85) else { return }
+
+            let filename = "\(checkId)_face.jpg"
+            try? jpegData.write(to: imagesDir.appendingPathComponent(filename))
+
+            guard let i = checkIndex(checkId) else { return }
+            checks[i].profilePhoto = filename
+            saveChecks()
+            queueFileForSync(filename: filename, vesselId: checks[i].vesselId)
+        } catch {
+            // Face detection failed — keep the full passport photo as fallback
         }
     }
 
