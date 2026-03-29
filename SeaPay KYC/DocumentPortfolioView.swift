@@ -409,11 +409,12 @@ struct DocumentDetailSheet: View {
                             Button {
                                 previewFilename = path
                                 if isPDF {
-                                    // Share/preview PDF directly
-                                    let url = vm.imagesDir.appendingPathComponent(path)
-                                    if FileManager.default.fileExists(atPath: url.path) {
-                                        shareURL = IdentifiableURL(url: url)
-                                    }
+                                    // Copy to temp for sharing (avoids sandbox issues)
+                                    let src = vm.imagesDir.appendingPathComponent(path)
+                                    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(path)
+                                    try? FileManager.default.removeItem(at: tmp)
+                                    try? FileManager.default.copyItem(at: src, to: tmp)
+                                    shareURL = IdentifiableURL(url: tmp)
                                 } else if let img = UIImage(data: data) {
                                     previewImage = img
                                 }
@@ -547,27 +548,60 @@ struct ImagePreviewView: View {
     let filename: String
     let imagesDir: URL
     @Environment(\.dismiss) private var dismiss
-    @State private var shareItem: IdentifiableURL?
+    @State private var showShare = false
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                Color.black.ignoresSafeArea()
-                Image(uiImage: image).resizable().scaledToFit().padding(4)
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            // Centered image with proper aspect ratio
+            GeometryReader { geo in
+                let imgSize = image.size
+                let scale = min(geo.size.width / imgSize.width, geo.size.height / imgSize.height, 1)
+                let displaySize = CGSize(width: imgSize.width * scale, height: imgSize.height * scale)
+
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: displaySize.width, height: displaySize.height)
+                    .position(x: geo.size.width / 2, y: geo.size.height / 2)
             }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { Image(systemName: "xmark").foregroundStyle(.white) }
+
+            // Top bar
+            VStack {
+                HStack {
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 36, height: 36)
+                            .background(.ultraThinMaterial.opacity(0.6))
+                            .clipShape(Circle())
+                    }
+                    Spacer()
+                    Text(filename).font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).lineLimit(1)
+                    Spacer()
+                    Button { showShare = true } label: {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 36, height: 36)
+                            .background(.ultraThinMaterial.opacity(0.6))
+                            .clipShape(Circle())
+                    }
                 }
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        let url = imagesDir.appendingPathComponent(filename)
-                        if FileManager.default.fileExists(atPath: url.path) { shareItem = IdentifiableURL(url: url) }
-                    } label: { Image(systemName: "square.and.arrow.up").foregroundStyle(.white) }
-                }
+                .padding(.horizontal, 16).padding(.top, 56)
+                Spacer()
             }
-            .toolbarBackground(.hidden, for: .navigationBar)
-            .sheet(item: $shareItem) { url in ActivityView(items: [url.url]) }
+        }
+        .ignoresSafeArea()
+        .sheet(isPresented: $showShare) {
+            // Copy file to temp dir for sharing (avoids sandbox permission issues)
+            let src = imagesDir.appendingPathComponent(filename)
+            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+            let _ = try? FileManager.default.removeItem(at: tmp)
+            let _ = try? FileManager.default.copyItem(at: src, to: tmp)
+            ActivityView(items: [tmp])
         }
     }
 }

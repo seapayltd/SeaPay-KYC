@@ -665,8 +665,12 @@ struct VesselDocDetailSheet: View {
                                 let isPDF = path.lowercased().hasSuffix(".pdf") || data.prefix(5) == Data([0x25, 0x50, 0x44, 0x46, 0x2D])
                                 Button {
                                     if isPDF {
-                                        let url = vm.imagesDir.appendingPathComponent(path)
-                                        if FileManager.default.fileExists(atPath: url.path) { shareURL = IdentifiableURL(url: url) }
+                                        // Copy to temp for sharing (avoids sandbox issues)
+                                        let src = vm.imagesDir.appendingPathComponent(path)
+                                        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(path)
+                                        try? FileManager.default.removeItem(at: tmp)
+                                        try? FileManager.default.copyItem(at: src, to: tmp)
+                                        shareURL = IdentifiableURL(url: tmp)
                                     } else if let img = UIImage(data: data) {
                                         previewImage = img; previewFilename = path
                                     }
