@@ -55,9 +55,10 @@ struct WorkspaceAgent: Codable, Identifiable, Sendable {
     let agentRole: String
     let joinedAt: String
     let lastSync: String?
-    let isActive: Bool
+    let isActive: Int  // MySQL TINYINT returns 0/1, not true/false
 
     var id: String { agentId }
+    var active: Bool { isActive != 0 }
 
     enum CodingKeys: String, CodingKey {
         case agentId = "agent_id"
@@ -263,6 +264,39 @@ final class CollaborationService {
     func checkForUpdates() async throws -> SyncStatus {
         let data = try await authenticatedRequest("sync.php?action=status&local_version=\(syncVersion)")
         return try JSONDecoder().decode(SyncStatus.self, from: data)
+    }
+
+    // MARK: - Per-Vessel Sync
+
+    func pushVessel(vessel: Vessel, checks: [KYCCheck]) async throws -> Int {
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        let vesselObj = try JSONSerialization.jsonObject(with: encoder.encode([vessel]))
+        let checksObj = try JSONSerialization.jsonObject(with: encoder.encode(checks))
+
+        let body: [String: Any] = [
+            "vessels": vesselObj,
+            "checks": checksObj,
+            "vessel_id": vessel.id,
+        ]
+
+        let data = try await authenticatedRequest("sync.php?action=push", method: "POST", body: body)
+        let response = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let version = response?["version"] as? Int ?? 0
+        syncVersion = version
+        return version
+    }
+
+    func pullVessel(vesselId: String) async throws -> SyncSnapshot? {
+        let data = try await authenticatedRequest("sync.php?action=pull&vessel_id=\(vesselId)")
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+
+        let response = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        if let snapshotDict = response?["snapshot"] as? [String: Any] {
+            let snapshotData = try JSONSerialization.data(withJSONObject: snapshotDict)
+            let snapshot = try decoder.decode(SyncSnapshot.self, from: snapshotData)
+            return snapshot
+        }
+        return nil
     }
 
     // MARK: - Activity

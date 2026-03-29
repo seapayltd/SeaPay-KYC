@@ -21,12 +21,17 @@ switch ($action) {
 
         $vessels = $data['vessels'] ?? null;
         $checks = $data['checks'] ?? null;
+        $vesselId = $data['vessel_id'] ?? null;
 
         if ($vessels === null && $checks === null) {
             jsonError(400, 'Nothing to sync — provide vessels and/or checks');
         }
 
         $db = getDB();
+
+        // Ensure vessel_id column exists (auto-migrate)
+        try { $db->exec("ALTER TABLE sync_snapshots ADD COLUMN vessel_id VARCHAR(36) DEFAULT NULL"); } catch (Exception $e) { /* already exists */ }
+        try { $db->exec("ALTER TABLE sync_snapshots ADD COLUMN vessel_name VARCHAR(100) DEFAULT ''"); } catch (Exception $e) { /* already exists */ }
 
         // Get next version number
         $stmt = $db->prepare("SELECT COALESCE(MAX(version), 0) + 1 as next_ver FROM sync_snapshots WHERE workspace_id = ?");
@@ -36,10 +41,14 @@ switch ($action) {
         $snapshotId = uuid();
         $vesselsJson = $vessels !== null ? json_encode($vessels, JSON_UNESCAPED_UNICODE) : null;
         $checksJson = $checks !== null ? json_encode($checks, JSON_UNESCAPED_UNICODE) : null;
+        $vesselName = '';
+        if ($vesselId && is_array($vessels) && count($vessels) > 0) {
+            $vesselName = $vessels[0]['name'] ?? '';
+        }
 
-        $db->prepare("INSERT INTO sync_snapshots (id, workspace_id, agent_id, agent_name, version, vessels_json, checks_json)
-                      VALUES (?, ?, ?, ?, ?, ?, ?)")
-           ->execute([$snapshotId, $auth['workspace_id'], $auth['agent_id'], $auth['agent_name'], $nextVersion, $vesselsJson, $checksJson]);
+        $db->prepare("INSERT INTO sync_snapshots (id, workspace_id, agent_id, agent_name, version, vessels_json, checks_json, vessel_id, vessel_name)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+           ->execute([$snapshotId, $auth['workspace_id'], $auth['agent_id'], $auth['agent_name'], $nextVersion, $vesselsJson, $checksJson, $vesselId, $vesselName]);
 
         // Log activity for significant changes
         $vesselCount = is_array($vessels) ? count($vessels) : 0;
@@ -62,10 +71,23 @@ switch ($action) {
     case 'pull':
         $auth = authenticate();
         $sinceVersion = (int)($_GET['since'] ?? 0);
+        $vesselIdFilter = $_GET['vessel_id'] ?? null;
 
         $db = getDB();
 
-        if ($sinceVersion > 0) {
+        if ($vesselIdFilter) {
+            // Pull latest snapshot for a specific vessel
+            $stmt = $db->prepare("SELECT id, agent_id, agent_name, version, vessels_json, checks_json, created_at
+                                  FROM sync_snapshots WHERE workspace_id = ? AND vessel_id = ?
+                                  ORDER BY version DESC LIMIT 1");
+            $stmt->execute([$auth['workspace_id'], $vesselIdFilter]);
+            $snapshot = $stmt->fetch();
+            if (!$snapshot) jsonResponse(['snapshot' => null, 'version' => 0]);
+            $snapshot['vessels'] = $snapshot['vessels_json'] ? json_decode($snapshot['vessels_json'], true) : null;
+            $snapshot['checks'] = $snapshot['checks_json'] ? json_decode($snapshot['checks_json'], true) : null;
+            unset($snapshot['vessels_json'], $snapshot['checks_json']);
+            jsonResponse(['snapshot' => $snapshot, 'version' => (int)$snapshot['version']]);
+        } elseif ($sinceVersion > 0) {
             // Get all snapshots since the given version (for incremental merge)
             $stmt = $db->prepare("SELECT id, agent_id, agent_name, version, vessels_json, checks_json, created_at
                                   FROM sync_snapshots WHERE workspace_id = ? AND version > ?
@@ -73,7 +95,6 @@ switch ($action) {
             $stmt->execute([$auth['workspace_id'], $sinceVersion]);
             $snapshots = $stmt->fetchAll();
 
-            // Decode JSON fields
             foreach ($snapshots as &$s) {
                 $s['vessels'] = $s['vessels_json'] ? json_decode($s['vessels_json'], true) : null;
                 $s['checks'] = $s['checks_json'] ? json_decode($s['checks_json'], true) : null;

@@ -167,8 +167,10 @@ struct HomeView: View {
                     // Content
                     if tab == 0 {
                         vesselsList.refreshable { await vm.refreshPendingSessions() }
-                    } else {
+                    } else if tab == 1 {
                         allChecksList.refreshable { await vm.refreshPendingSessions() }
+                    } else {
+                        FleetTabView(vm: vm)
                     }
 
                     Spacer(minLength: 0)
@@ -185,6 +187,7 @@ struct HomeView: View {
                     HStack(spacing: 24) {
                         tabLabel("Vessels", index: 0)
                         tabLabel("People", index: 1)
+                        tabLabel("Fleet", index: 2)
                     }
                 }
                 ToolbarItem(placement: .navigationBarLeading) {

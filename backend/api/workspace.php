@@ -127,6 +127,8 @@ switch ($action) {
                               FROM workspace_agents WHERE workspace_id = ? ORDER BY joined_at");
         $stmt->execute([$auth['workspace_id']]);
         $agents = $stmt->fetchAll();
+        // Cast MySQL TINYINT to proper boolean for Swift Codable
+        foreach ($agents as &$a) { $a['is_active'] = (int)$a['is_active']; }
 
         $stmt = $db->prepare("SELECT MAX(version) as latest FROM sync_snapshots WHERE workspace_id = ?");
         $stmt->execute([$auth['workspace_id']]);

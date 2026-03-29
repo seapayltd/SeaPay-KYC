@@ -2,21 +2,24 @@
 //  WorkspaceView.swift
 //  OceanCheck
 //
-//  Multi-agent workspace: create/join, see collaborators, sync data, activity feed.
+//  Fleet tab — vessel-based multi-agent collaboration.
+//  Shows shared vessels with per-vessel sync, activity feed, and collaborator list.
 //
 
 import SwiftUI
 
-struct WorkspaceView: View {
+// MARK: - Fleet Tab (Third tab in HomeView)
+
+struct FleetTabView: View {
     @ObservedObject var vm: KYCViewModel
     @State private var isConnected = false
     @State private var workspaceDetail: WorkspaceDetail?
     @State private var activity: [ActivityEvent] = []
     @State private var syncStatus: SyncStatus?
     @State private var error: String?
-    @State private var isSyncing = false
     @State private var showCreate = false
     @State private var showJoin = false
+    @State private var syncingVesselId: String?
 
     var body: some View {
         Group {
@@ -26,8 +29,6 @@ struct WorkspaceView: View {
                 disconnectedView
             }
         }
-        .navigationTitle("Workspace")
-        .navigationBarTitleDisplayMode(.inline)
         .task { await checkConnection() }
         .sheet(isPresented: $showCreate) { CreateWorkspaceSheet(vm: vm, onCreated: { await refresh() }) }
         .sheet(isPresented: $showJoin) { JoinWorkspaceSheet(vm: vm, onJoined: { await refresh() }) }
@@ -36,18 +37,25 @@ struct WorkspaceView: View {
     // MARK: - Disconnected
 
     private var disconnectedView: some View {
-        VStack(spacing: 24) {
-            Spacer()
-            Image(systemName: "person.3").font(.system(size: 48)).foregroundStyle(.quaternary)
-            VStack(spacing: 6) {
-                Text("Multi-Agent Workspace").font(Typo.context).fontWeight(.semibold)
-                Text("Collaborate with other compliance officers on the same vessels in real time.")
-                    .font(Typo.meta).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 40)
+        ScrollView {
+            VStack(spacing: 28) {
+                Spacer(minLength: 40)
+                Image(systemName: "person.3.sequence").font(.system(size: 52)).foregroundStyle(.primary.opacity(0.08))
+                VStack(spacing: 8) {
+                    Text("Fleet Collaboration").font(BrandFont.brand(24))
+                    Text("Work on vessels together with other compliance officers. Create a workspace or join one with a code.")
+                        .font(Typo.meta).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 40)
+                }
+                Spacer(minLength: 20)
+                Button { showCreate = true } label: { Text("Create Workspace") }.buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 48)
+                Button { showJoin = true } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "link").font(.system(size: 13))
+                        Text("Join with Code")
+                    }.font(Typo.body).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 40)
             }
-            Spacer()
-            Button { showCreate = true } label: { Text("Create Workspace") }.buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 48)
-            Button { showJoin = true } label: { Text("Join with Code").font(Typo.body).foregroundStyle(.secondary) }
-            Spacer().frame(height: 40)
         }
         .background(Color.surface.ignoresSafeArea())
     }
@@ -55,130 +63,174 @@ struct WorkspaceView: View {
     // MARK: - Connected
 
     private var connectedView: some View {
-        List {
-            // Workspace header
-            if let ws = workspaceDetail?.workspace {
-                Section {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(ws.name).font(.system(size: 18, weight: .bold))
-                        HStack(spacing: 8) {
-                            Label(ws.code, systemImage: "number").font(.system(size: 13, design: .monospaced)).foregroundStyle(.secondary)
-                            Spacer()
-                            if let status = syncStatus {
-                                Text("\(status.activeAgents) online").font(Typo.meta).foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-
-                // Sync status
-                Section("Sync") {
-                    if let status = syncStatus {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                // Workspace header
+                if let ws = workspaceDetail?.workspace {
+                    VStack(spacing: 10) {
                         HStack {
-                            Image(systemName: status.hasUpdates ? "arrow.down.circle.fill" : "checkmark.circle.fill")
-                                .foregroundStyle(status.hasUpdates ? Color.review : Color.clear_)
-                            Text(status.hasUpdates ? "\(status.updatesAvailable) update\(status.updatesAvailable == 1 ? "" : "s") available" : "Up to date")
-                                .font(Typo.body)
-                            Spacer()
-                            Text("v\(status.latestVersion)").font(Typo.meta).foregroundStyle(.quaternary)
-                        }
-                    }
-
-                    Button {
-                        Task { await pushData() }
-                    } label: {
-                        HStack {
-                            Image(systemName: "arrow.up.circle").foregroundStyle(.secondary)
-                            Text("Push Changes").font(Typo.body)
-                            Spacer()
-                            if isSyncing { ProgressView().controlSize(.mini) }
-                        }
-                    }
-                    .disabled(isSyncing)
-
-                    Button {
-                        Task { await pullData() }
-                    } label: {
-                        HStack {
-                            Image(systemName: "arrow.down.circle").foregroundStyle(.secondary)
-                            Text("Pull Latest").font(Typo.body)
-                            Spacer()
-                        }
-                    }
-                    .disabled(isSyncing)
-                }
-            }
-
-            // Agents
-            if let agents = workspaceDetail?.agents {
-                Section("Collaborators (\(agents.filter(\.isActive).count))") {
-                    ForEach(agents.filter(\.isActive)) { agent in
-                        HStack(spacing: 12) {
-                            Circle().fill(Color.surfaceMuted).frame(width: 36, height: 36)
-                                .overlay {
-                                    Text(String(agent.agentName.prefix(1)).uppercased())
-                                        .font(.system(size: 14, weight: .semibold)).foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(ws.name).font(.system(size: 18, weight: .bold))
+                                HStack(spacing: 6) {
+                                    Text(ws.code).font(.system(size: 12, design: .monospaced)).foregroundStyle(.secondary)
+                                    if let agents = workspaceDetail?.agents {
+                                        Text("\u{2022} \(agents.filter(\.active).count) online").font(Typo.meta).foregroundStyle(.secondary)
+                                    }
                                 }
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(agent.agentName).font(Typo.body).fontWeight(.medium)
-                                if !agent.agentOrg.isEmpty { Text(agent.agentOrg).font(Typo.meta).foregroundStyle(.secondary) }
                             }
                             Spacer()
-                            if let sync = agent.lastSync {
-                                Text(sync.prefix(10)).font(Typo.meta).foregroundStyle(.quaternary)
+                            Button {
+                                UIPasteboard.general.string = ws.code
+                                Haptics.light()
+                            } label: {
+                                Image(systemName: "doc.on.doc").font(.system(size: 13)).foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.horizontal, 20).padding(.top, 16)
+
+                        // Agent avatars row
+                        if let agents = workspaceDetail?.agents.filter(\.active), !agents.isEmpty {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: -8) {
+                                    ForEach(agents) { agent in
+                                        Circle().fill(Color.surfaceMuted).frame(width: 32, height: 32)
+                                            .overlay {
+                                                Text(String(agent.agentName.prefix(1)).uppercased()).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                                            }
+                                            .overlay(Circle().stroke(Color.surface, lineWidth: 2))
+                                    }
+                                }
+                                .padding(.horizontal, 20)
                             }
                         }
                     }
+                    .padding(.bottom, 12)
                 }
-            }
 
-            // Activity
-            if !activity.isEmpty {
-                Section("Recent Activity") {
-                    ForEach(activity.prefix(15)) { event in
-                        HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: activityIcon(event.action)).font(.system(size: 11)).foregroundStyle(.secondary).frame(width: 18)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("\(event.agentName) \(event.action.replacingOccurrences(of: "_", with: " "))").font(Typo.body).lineLimit(1)
-                                if !event.entityName.isEmpty { Text(event.entityName).font(Typo.meta).foregroundStyle(.secondary) }
-                                Text(event.createdAt.prefix(16).replacingOccurrences(of: "T", with: " ")).font(.system(size: 10)).foregroundStyle(.quaternary)
-                            }
-                        }
+                // Vessels
+                SectionHeader("Shared Vessels").padding(.horizontal, 20).padding(.top, 8)
+
+                if vm.vessels.isEmpty {
+                    VStack(spacing: 12) {
+                        Text("No vessels yet").font(Typo.body).foregroundStyle(.secondary)
+                        Text("Add a vessel in the Vessels tab, then sync it here.").font(Typo.meta).foregroundStyle(.quaternary)
+                    }
+                    .padding(.vertical, 24)
+                } else {
+                    ForEach(vm.vessels) { vessel in
+                        vesselSyncCard(vessel)
                     }
                 }
-            }
 
-            // Error
-            if let error {
-                Section {
-                    Text(error).font(Typo.meta).foregroundStyle(Color.flagged)
+                // Activity
+                if !activity.isEmpty {
+                    SectionHeader("Recent Activity").padding(.horizontal, 20).padding(.top, 16)
+                    ForEach(activity.prefix(10)) { event in
+                        activityRow(event)
+                    }
                 }
-            }
 
-            // Leave
-            Section {
+                // Error
+                if let error {
+                    Text(error).font(Typo.meta).foregroundStyle(Color.flagged).padding(20)
+                }
+
+                // Leave
                 Button(role: .destructive) {
                     Task {
                         try? await CollaborationService.shared.leaveWorkspace()
                         await checkConnection()
                     }
                 } label: {
-                    HStack {
-                        Image(systemName: "rectangle.portrait.and.arrow.right").foregroundStyle(Color.flagged)
-                        Text("Leave Workspace").foregroundStyle(Color.flagged)
+                    HStack(spacing: 8) {
+                        Image(systemName: "rectangle.portrait.and.arrow.right").font(.system(size: 12))
+                        Text("Leave Workspace").font(Typo.meta)
+                    }.foregroundStyle(Color.flagged)
+                }
+                .padding(.top, 24).padding(.bottom, 40)
+            }
+        }
+        .background(Color.surface.ignoresSafeArea())
+        .refreshable { await refresh() }
+    }
+
+    // MARK: - Vessel Sync Card
+
+    private func vesselSyncCard(_ vessel: Vessel) -> some View {
+        let crew = vm.checksForVessel(vessel.id)
+        let isSyncing = syncingVesselId == vessel.id
+
+        return VStack(spacing: 0) {
+            HStack(spacing: 14) {
+                // Vessel icon
+                Circle().fill(Color.surfaceMuted).frame(width: 44, height: 44)
+                    .overlay {
+                        Image(systemName: vessel.vesselType?.icon ?? "ferry").font(.system(size: 16)).foregroundStyle(.secondary)
+                    }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(vessel.name).font(Typo.body).fontWeight(.semibold)
+                    HStack(spacing: 8) {
+                        Text("\(crew.count) crew").font(Typo.meta).foregroundStyle(.secondary)
+                        if !vessel.flagState.isEmpty {
+                            Text(vessel.flagState).font(Typo.meta).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                Spacer()
+
+                if isSyncing {
+                    ProgressView().controlSize(.small)
+                } else {
+                    HStack(spacing: 12) {
+                        Button {
+                            Task { await pushVessel(vessel) }
+                        } label: {
+                            Image(systemName: "arrow.up.circle").font(.system(size: 20)).foregroundStyle(.primary.opacity(0.6))
+                        }
+                        .accessibilityLabel("Push \(vessel.name)")
+
+                        Button {
+                            Task { await pullVessel(vessel) }
+                        } label: {
+                            Image(systemName: "arrow.down.circle").font(.system(size: 20)).foregroundStyle(.primary.opacity(0.6))
+                        }
+                        .accessibilityLabel("Pull \(vessel.name)")
                     }
                 }
             }
+            .padding(.horizontal, 20).padding(.vertical, 14)
+
+            Divider().padding(.leading, 78)
         }
-        .refreshable { await refresh() }
+    }
+
+    // MARK: - Activity Row
+
+    private func activityRow(_ event: ActivityEvent) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Circle().fill(Color.surfaceMuted).frame(width: 28, height: 28)
+                .overlay {
+                    Text(String(event.agentName.prefix(1)).uppercased()).font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+                }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(event.agentName) \(event.action.replacingOccurrences(of: "_", with: " "))").font(Typo.body).lineLimit(1)
+                if !event.entityName.isEmpty { Text(event.entityName).font(Typo.meta).foregroundStyle(.secondary) }
+            }
+
+            Spacer()
+
+            Text(event.createdAt.suffix(8).prefix(5)).font(Typo.meta).foregroundStyle(.quaternary)
+        }
+        .padding(.horizontal, 20).padding(.vertical, 8)
     }
 
     // MARK: - Actions
 
     private func checkConnection() async {
-        let collab = CollaborationService.shared
-        isConnected = collab.isConnected
+        isConnected = CollaborationService.shared.isConnected
         if isConnected { await refresh() }
     }
 
@@ -186,43 +238,37 @@ struct WorkspaceView: View {
         isConnected = CollaborationService.shared.isConnected
         guard isConnected else { return }
         do {
-            async let detail = CollaborationService.shared.getWorkspaceInfo()
-            async let status = CollaborationService.shared.checkForUpdates()
-            async let feed = CollaborationService.shared.getActivity()
-            workspaceDetail = try await detail
-            syncStatus = try await status
-            activity = try await feed
+            workspaceDetail = try await CollaborationService.shared.getWorkspaceInfo()
+            syncStatus = try await CollaborationService.shared.checkForUpdates()
+            activity = try await CollaborationService.shared.getActivity()
             error = nil
         } catch {
             self.error = error.localizedDescription
         }
     }
 
-    private func pushData() async {
-        isSyncing = true
-        defer { isSyncing = false }
+    private func pushVessel(_ vessel: Vessel) async {
+        syncingVesselId = vessel.id
+        defer { syncingVesselId = nil }
         do {
-            _ = try await CollaborationService.shared.pushData(vessels: vm.vessels, checks: vm.checks)
+            let checks = vm.checksForVessel(vessel.id)
+            _ = try await CollaborationService.shared.pushVessel(vessel: vessel, checks: checks)
             Haptics.success()
             await refresh()
         } catch {
-            self.error = error.localizedDescription
+            self.error = "Push failed: \(error.localizedDescription)"
         }
     }
 
-    private func pullData() async {
-        isSyncing = true
-        defer { isSyncing = false }
+    private func pullVessel(_ vessel: Vessel) async {
+        syncingVesselId = vessel.id
+        defer { syncingVesselId = nil }
         do {
-            if let snapshot = try await CollaborationService.shared.pullLatest() {
-                // Merge pulled data
+            if let snapshot = try await CollaborationService.shared.pullVessel(vesselId: vessel.id) {
                 if let vessels = snapshot.vessels {
-                    for vessel in vessels {
-                        if !vm.vessels.contains(where: { $0.id == vessel.id }) {
-                            vm.vessels.append(vessel)
-                        }
+                    for v in vessels where v.id == vessel.id {
+                        vm.updateVessel(v)
                     }
-                    vm.saveVessels()
                 }
                 if let checks = snapshot.checks {
                     for check in checks {
@@ -236,17 +282,7 @@ struct WorkspaceView: View {
             }
             await refresh()
         } catch {
-            self.error = error.localizedDescription
-        }
-    }
-
-    private func activityIcon(_ action: String) -> String {
-        switch action {
-        case "workspace_created": return "plus.circle"
-        case "agent_joined": return "person.badge.plus"
-        case "agent_left": return "person.badge.minus"
-        case "data_synced": return "arrow.triangle.2.circlepath"
-        default: return "circle"
+            self.error = "Pull failed: \(error.localizedDescription)"
         }
     }
 }
@@ -266,39 +302,30 @@ struct CreateWorkspaceSheet: View {
         NavigationStack {
             VStack(spacing: 24) {
                 if let result {
-                    // Success
-                    VStack(spacing: 16) {
-                        Spacer()
-                        Image(systemName: "checkmark.circle").font(.system(size: 48)).foregroundStyle(Color.clear_)
-                        Text("Workspace Created").font(Typo.context)
-                        VStack(spacing: 8) {
-                            Text("Share this code with collaborators:").font(Typo.meta).foregroundStyle(.secondary)
-                            Text(result.code).font(.system(size: 32, weight: .bold, design: .monospaced)).kerning(4)
-                        }
-                        .padding(.top, 8)
-                        Button {
-                            UIPasteboard.general.string = result.code
-                            Haptics.light()
-                        } label: {
-                            Label("Copy Code", systemImage: "doc.on.doc").font(Typo.body)
-                        }
-                        Spacer()
-                        Button { dismiss() } label: { Text("Done") }.buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 48)
-                        Spacer().frame(height: 20)
-                    }
+                    Spacer()
+                    Image(systemName: "checkmark.circle").font(.system(size: 48)).foregroundStyle(Color.clear_)
+                    Text("Workspace Created").font(Typo.context)
+                    VStack(spacing: 8) {
+                        Text("Share this code with collaborators:").font(Typo.meta).foregroundStyle(.secondary)
+                        Text(result.code).font(.system(size: 32, weight: .bold, design: .monospaced)).kerning(4)
+                    }.padding(.top, 8)
+                    Button {
+                        UIPasteboard.general.string = result.code
+                        Haptics.light()
+                    } label: { Label("Copy Code", systemImage: "doc.on.doc").font(Typo.body) }
+                    Spacer()
+                    Button { dismiss() } label: { Text("Done") }.buttonStyle(PrimaryButtonStyle()).padding(.horizontal, 48)
+                    Spacer().frame(height: 20)
                 } else {
-                    // Form
                     Spacer()
                     Image(systemName: "person.3").font(.system(size: 44)).foregroundStyle(.quaternary)
                     Text("Create a Workspace").font(Typo.context)
                     Text("Other agents can join using a code.").font(Typo.meta).foregroundStyle(.secondary)
-                    TextField("Workspace name (e.g. vessel name)", text: $name)
+                    TextField("Workspace name (e.g. fleet name)", text: $name)
                         .font(Typo.body).textFieldStyle(.roundedBorder).padding(.horizontal, 32)
                     if let error { Text(error).font(Typo.meta).foregroundStyle(Color.flagged) }
                     Spacer()
-                    Button {
-                        Task { await create() }
-                    } label: { Text(isCreating ? "Creating..." : "Create") }
+                    Button { Task { await create() } } label: { Text(isCreating ? "Creating..." : "Create") }
                         .buttonStyle(PrimaryButtonStyle(isEnabled: !name.trimmingCharacters(in: .whitespaces).isEmpty && !isCreating))
                         .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || isCreating)
                         .padding(.horizontal, 48)
@@ -306,11 +333,7 @@ struct CreateWorkspaceSheet: View {
                 }
             }
             .background(Color.surface.ignoresSafeArea())
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    if result == nil { Button("Cancel") { dismiss() } }
-                }
-            }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { if result == nil { Button("Cancel") { dismiss() } } } }
         }
     }
 
@@ -320,9 +343,7 @@ struct CreateWorkspaceSheet: View {
             result = try await CollaborationService.shared.createWorkspace(name: name.trimmingCharacters(in: .whitespaces))
             await onCreated()
             Haptics.success()
-        } catch {
-            self.error = error.localizedDescription
-        }
+        } catch { self.error = error.localizedDescription }
         isCreating = false
     }
 }
@@ -346,24 +367,17 @@ struct JoinWorkspaceSheet: View {
                 Text("Enter the code shared by another agent.").font(Typo.meta).foregroundStyle(.secondary)
                 TextField("Workspace code", text: $code)
                     .font(.system(size: 24, weight: .bold, design: .monospaced))
-                    .multilineTextAlignment(.center)
-                    .textInputAutocapitalization(.characters)
-                    .autocorrectionDisabled()
-                    .padding(.horizontal, 48)
+                    .multilineTextAlignment(.center).textInputAutocapitalization(.characters)
+                    .autocorrectionDisabled().padding(.horizontal, 48)
                 if let error { Text(error).font(Typo.meta).foregroundStyle(Color.flagged) }
                 Spacer()
-                Button {
-                    Task { await join() }
-                } label: { Text(isJoining ? "Joining..." : "Join") }
+                Button { Task { await join() } } label: { Text(isJoining ? "Joining..." : "Join") }
                     .buttonStyle(PrimaryButtonStyle(isEnabled: code.count >= 6 && !isJoining))
-                    .disabled(code.count < 6 || isJoining)
-                    .padding(.horizontal, 48)
+                    .disabled(code.count < 6 || isJoining).padding(.horizontal, 48)
                 Spacer().frame(height: 20)
             }
             .background(Color.surface.ignoresSafeArea())
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-            }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }
     }
 
@@ -374,9 +388,7 @@ struct JoinWorkspaceSheet: View {
             await onJoined()
             Haptics.success()
             dismiss()
-        } catch {
-            self.error = error.localizedDescription
-        }
+        } catch { self.error = error.localizedDescription }
         isJoining = false
     }
 }
