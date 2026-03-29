@@ -39,15 +39,15 @@ final class ServiceContainer {
     let cloudBackup: CloudBackupProtocol
 
     init(
-        api: VerificationAPIService = .shared,
-        claude: ClaudeService = .shared,
-        notifications: NotificationServiceProtocol = NotificationService.shared,
-        cloudBackup: CloudBackupProtocol = CloudBackupService.shared
+        api: VerificationAPIService? = nil,
+        claude: ClaudeService? = nil,
+        notifications: NotificationServiceProtocol? = nil,
+        cloudBackup: CloudBackupProtocol? = nil
     ) {
-        self.api = api
-        self.claude = claude
-        self.notifications = notifications
-        self.cloudBackup = cloudBackup
+        self.api = api ?? VerificationAPIService.shared
+        self.claude = claude ?? ClaudeService.shared
+        self.notifications = notifications ?? NotificationService.shared
+        self.cloudBackup = cloudBackup ?? CloudBackupService.shared
     }
 
     /// Create a container with mock notification/backup services (for testing)

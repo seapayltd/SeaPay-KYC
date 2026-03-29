@@ -178,12 +178,12 @@ struct WorkspaceView: View {
 
     private func checkConnection() async {
         let collab = CollaborationService.shared
-        isConnected = await collab.isConnected
+        isConnected = collab.isConnected
         if isConnected { await refresh() }
     }
 
     private func refresh() async {
-        isConnected = await CollaborationService.shared.isConnected
+        isConnected = CollaborationService.shared.isConnected
         guard isConnected else { return }
         do {
             async let detail = CollaborationService.shared.getWorkspaceInfo()

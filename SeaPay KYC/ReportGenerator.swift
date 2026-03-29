@@ -12,7 +12,6 @@ import UIKit
 import CoreImage
 import CryptoKit
 
-@MainActor
 enum ReportGenerator {
 
     // Palette

@@ -67,8 +67,8 @@ class KYCViewModel: ObservableObject {
 
     let services: ServiceContainer
 
-    init(services: ServiceContainer = .shared) {
-        self.services = services
+    init(services: ServiceContainer? = nil) {
+        self.services = services ?? .shared
         netMonitor.pathUpdateHandler = { [weak self] path in
             Task { @MainActor [weak self] in self?.isOnline = path.status == .satisfied }
         }
@@ -85,11 +85,11 @@ class KYCViewModel: ObservableObject {
     func loadIfNeeded() {
         guard !didLoad else { return }
         didLoad = true
-        Task.detached { [weak self] in
-            let checksURL = await self?.checksFile
-            let vesselsURL = await self?.vesselsFile
-            let transferURL = await self?.transferLogFile
-            guard let checksURL, let vesselsURL, let transferURL else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            let checksURL = self.checksFile
+            let vesselsURL = self.vesselsFile
+            let transferURL = self.transferLogFile
 
             EncryptionService.migrateIfNeeded(at: checksURL)
             EncryptionService.migrateIfNeeded(at: vesselsURL)
@@ -100,21 +100,19 @@ class KYCViewModel: ObservableObject {
             let loadedVessels = EncryptionService.readDecrypted(from: vesselsURL).flatMap { try? decoder.decode([Vessel].self, from: $0) } ?? []
             let loadedTransfers = EncryptionService.readDecrypted(from: transferURL).flatMap { try? decoder.decode([TransferRecord].self, from: $0) } ?? []
 
-            let consentURL = await self?.consentFile
-            let auditURL = await self?.auditFile
-            let loadedConsent = consentURL.flatMap { EncryptionService.readDecrypted(from: $0) }.flatMap { try? decoder.decode([ConsentRecord].self, from: $0) } ?? []
-            let loadedAudit = auditURL.flatMap { (try? Data(contentsOf: $0)).flatMap { try? decoder.decode([AuditEvent].self, from: $0) } } ?? []
+            let consentURL = self.consentFile
+            let auditURL = self.auditFile
+            let loadedConsent = EncryptionService.readDecrypted(from: consentURL).flatMap { try? decoder.decode([ConsentRecord].self, from: $0) } ?? []
+            let loadedAudit = (try? Data(contentsOf: auditURL)).flatMap { try? decoder.decode([AuditEvent].self, from: $0) } ?? []
 
-            await MainActor.run { [weak self] in
-                self?.checks = loadedChecks
-                self?.vessels = loadedVessels
-                self?.transferLog = loadedTransfers
-                self?.consentRecords = loadedConsent
-                self?.auditLog = loadedAudit
-                self?.startPollingPendingSessions()
-                self?.offlineQueue.startObserving(vm: self!)
-                self?.offlineQueue.clearStale()
-            }
+            self.checks = loadedChecks
+            self.vessels = loadedVessels
+            self.transferLog = loadedTransfers
+            self.consentRecords = loadedConsent
+            self.auditLog = loadedAudit
+            self.startPollingPendingSessions()
+            self.offlineQueue.startObserving(vm: self)
+            self.offlineQueue.clearStale()
         }
     }
 
