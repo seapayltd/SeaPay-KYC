@@ -242,7 +242,7 @@ struct QuickAddSheet: View {
     @State private var showFilePicker = false
     @State private var capturedImage: Data?
     @State private var docNumber = ""
-    @State private var expiryDate = Calendar.current.date(byAdding: .year, value: 1, to: Date())!
+    @State private var expiryDate = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
     @State private var hasExpiry = true
     @State private var issuingAuthority = ""
     @State private var issueDate = Date()

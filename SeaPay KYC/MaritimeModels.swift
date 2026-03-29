@@ -696,7 +696,7 @@ struct CrewDocument: Identifiable, Codable, Hashable {
     var status: Status {
         guard let exp = expiryDate else { return imagePaths.isEmpty ? .missing : .valid }
         if exp < Date() { return .expired }
-        if exp < Calendar.current.date(byAdding: .day, value: 90, to: Date())! { return .expiringSoon }
+        if exp < Calendar.current.date(byAdding: .day, value: 90, to: Date()) ?? Date() { return .expiringSoon }
         return .valid
     }
 

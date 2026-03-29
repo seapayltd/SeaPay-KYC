@@ -44,8 +44,8 @@ struct OfflineQueueView: View {
                                 Text(action.checkName).font(Typo.body).fontWeight(.medium)
                                 Text(actionLabel(action.actionType)).font(Typo.meta).foregroundStyle(.secondary)
                                 HStack(spacing: 6) {
-                                    Text(action.statusText).font(.system(size: 10)).foregroundStyle(action.retryCount > 0 ? Color.review : .quaternary)
-                                    Text(action.createdAt.formatted(.relative(presentation: .named))).font(.system(size: 10)).foregroundStyle(.quaternary)
+                                    Text(action.statusText).font(.system(size: 10)).foregroundStyle(action.retryCount > 0 ? Color.review : Color.secondary.opacity(0.5))
+                                    Text(action.createdAt.formatted(.relative(presentation: .named))).font(.system(size: 10)).foregroundStyle(.secondary.opacity(0.5))
                                 }
                             }
 

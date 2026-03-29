@@ -1330,7 +1330,7 @@ struct VesselDocAddSheet: View {
     // AI extraction results
     @State private var detectedType: VesselDocType?
     @State private var docNumber = ""
-    @State private var expiryDate = Calendar.current.date(byAdding: .year, value: 1, to: Date())!
+    @State private var expiryDate = Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date()
     @State private var hasExpiry = true
     @State private var issuingAuthority = ""
     @State private var confidence = ""

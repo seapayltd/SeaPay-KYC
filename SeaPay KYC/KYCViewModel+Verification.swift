@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import CoreLocation
 import os.log
 
 private let verifyLogger = Logger(subsystem: "com.seapay.kyc", category: "Verification")

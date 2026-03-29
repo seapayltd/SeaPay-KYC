@@ -52,7 +52,7 @@ CREW VERIFICATION
 - Profile photos auto-extracted from passport scans
 
 MARITIME DOCUMENT PORTFOLIO
-- 30+ maritime document types: STCW certificates, COCs, medical (ENG1/PEME), flag endorsements, tanker training, megayacht qualifications, and more
+- 60+ maritime document types: STCW certificates, COCs, medical (ENG1/PEME), flag endorsements, tanker training, megayacht qualifications, KYB corporate docs, and more
 - Automatic document requirements based on crew rank, vessel type, and flag state
 - Covers 10 flag registries: Marshall Islands, Cayman Islands, UK (Red Ensign), Malta, Panama, Bahamas, Singapore, Liberia, Italy, Greece
 - Quick-add: camera capture with expiry date tracking
@@ -67,21 +67,32 @@ ENTITY VERIFICATION (beyond crew)
 
 COMPLIANCE REPORTING
 - Professional PDF reports with integrity hash, QR verification code, watermark, and chain of custody
-- Document portfolio summary in every report
-- CSV export for management companies and flag state authorities
+- Batch summary reports and vessel compliance summary PDFs
+- CSV and XLSX export for management companies and flag state authorities
 - Vessel compliance packets: one PDF combining cover sheet + all crew reports
+- UBO compliance reports with trust structure support
+
+COLLABORATION
+- Multi-agent workspaces: create a workspace, share a code, collaborate on vessels
+- Push/pull data sync with version tracking
+- Activity feed showing who did what
+- Works across multiple agents and devices
 
 TRANSFER & MANAGEMENT
 - Transfer crew between vessels with full document history
+- .oceancheck transfer packages with SHA256 integrity verification
+- Transfer preview, import rollback, and audit trail
 - Assign unassigned crew to vessels
 - Export/import backup for device migration and disaster recovery
 - Push notifications for document expiry (90, 30, 7, and 1 day warnings)
 
 SECURITY & PRIVACY
-- All data stored locally on device by default
+- AES-GCM encryption at rest for all personal data
+- Face ID / Touch ID app lock
 - Optional iCloud backup (opt-in from Settings)
 - API keys in iOS Keychain
 - HTTPS/TLS for all network communication
+- GDPR compliance: consent tracking, data retention, DSAR export, audit log
 - No analytics, tracking, or third-party SDKs
 - Full data reset from Settings
 

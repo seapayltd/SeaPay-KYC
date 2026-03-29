@@ -6,6 +6,12 @@
 	<true/>
 	<key>NSFaceIDUsageDescription</key>
 	<string>OceanCheck uses Face ID to protect access to sensitive compliance and identity verification data.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>OceanCheck uses the camera to scan identity documents and QR codes.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>OceanCheck accesses your photo library to import identity documents and certificates.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>OceanCheck records your location for verification audit trails.</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>ivy-mode-regular.ttf</string>

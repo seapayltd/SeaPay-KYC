@@ -489,7 +489,7 @@ struct HomeView: View {
         case 1: base = vm.checks.filter { $0.status == .failed || $0.status == .requiresReview }
         case 2: base = vm.checks.filter { check in
             if let exp = check.expiryDate, let date = DateFormatter.shortDate.date(from: exp) {
-                return date < Calendar.current.date(byAdding: .day, value: 90, to: Date())!
+                return date < Calendar.current.date(byAdding: .day, value: 90, to: Date()) ?? Date()
             }
             return false
         }

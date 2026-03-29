@@ -89,14 +89,14 @@ enum DemoMode {
          "issuing_state_name":"Malta","gender":"M","date_of_issue":"2020-06-15",
          "place_of_birth":"Valletta"}
         """
-        return try? JSONDecoder().decode(IDResult.self, from: json.data(using: .utf8)!)
+        return try? JSONDecoder().decode(IDResult.self, from: json.data(using: .utf8) ?? Data())
     }
 
     static var fakeAMLResult: AMLResult? {
         let json = """
         {"status":"Approved","score":5,"total_hits":0}
         """
-        return try? JSONDecoder().decode(AMLResult.self, from: json.data(using: .utf8)!)
+        return try? JSONDecoder().decode(AMLResult.self, from: json.data(using: .utf8) ?? Data())
     }
 
     // MARK: - Populate Demo Data

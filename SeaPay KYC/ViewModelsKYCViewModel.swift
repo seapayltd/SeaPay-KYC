@@ -12,7 +12,6 @@
 import Foundation
 import Combine
 import SwiftUI
-import CoreLocation
 import Network
 import os.log
 import WidgetKit
@@ -380,7 +379,7 @@ class KYCViewModel: ObservableObject {
     }()
 
     var expiringChecks: [KYCCheck] {
-        let cutoff = Calendar.current.date(byAdding: .day, value: 30, to: Date())!
+        let cutoff = Calendar.current.date(byAdding: .day, value: 30, to: Date()) ?? Date()
         return checks.filter { check in
             guard let s = check.expiryDate, let d = Self.expiryDateFmt.date(from: s) else { return false }
             return d >= Date() && d <= cutoff
@@ -453,7 +452,7 @@ class KYCViewModel: ObservableObject {
     }
 
     var allExpiringDocuments: [(check: KYCCheck, document: CrewDocument)] {
-        let cutoff = Calendar.current.date(byAdding: .day, value: 90, to: Date())!
+        let cutoff = Calendar.current.date(byAdding: .day, value: 90, to: Date()) ?? Date()
         return checks.flatMap { check in
             (check.documents ?? []).compactMap { doc in
                 guard let exp = doc.expiryDate, exp >= Date(), exp <= cutoff else { return nil }
@@ -563,15 +562,11 @@ class KYCViewModel: ObservableObject {
     // MARK: - Create Check
 
     func createCheck(customerName: String, entityType: KYCCheck.EntityType = .seafarer, vesselId: String? = nil, crewRank: CrewRank? = nil, companyName: String? = nil, registrationNumber: String? = nil, jurisdiction: String? = nil, ownershipPercent: Double? = nil, docType: KYCCheck.IDDocType? = nil) -> KYCCheck {
-        let lm = CLLocationManager()
-        lm.requestWhenInUseAuthorization()
-        let loc = lm.location
-
         var check = KYCCheck(
             id: UUID().uuidString, customerId: "", customerName: customerName,
             agentId: "", agentName: AgentProfile.current?.fullName ?? "Agent",
             checkType: .idVerification, status: .pending, entityType: entityType,
-            createdAt: Date(), latitude: loc?.coordinate.latitude, longitude: loc?.coordinate.longitude,
+            createdAt: Date(), latitude: nil, longitude: nil,
             expectedDocType: docType
         )
         check.vesselId = vesselId; check.crewRank = crewRank; check.companyName = companyName
