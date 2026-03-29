@@ -266,6 +266,18 @@ class KYCViewModel: ObservableObject {
         imageCache.removeObject(forKey: filename as NSString)
     }
 
+    /// Auto-push a vessel's full data (JSON + files) to the workspace backend.
+    /// Called after any document add/update so collaborators get changes automatically.
+    func autoPushVessel(vesselId: String) {
+        guard CollaborationService.shared.isConnected else { return }
+        guard let vessel = vessels.first(where: { $0.id == vesselId }) else { return }
+        Task {
+            let checks = checksForVessel(vesselId)
+            _ = try? await CollaborationService.shared.pushVessel(vessel: vessel, checks: checks)
+            await FilesSyncService.shared.uploadMissingFiles(vesselId: vesselId, vm: self)
+        }
+    }
+
     /// Queue a file for background upload to the workspace (if connected).
     /// Called after any local file save so collaborators get files automatically.
     func queueFileForSync(filename: String, vesselId: String?) {
@@ -450,17 +462,21 @@ class KYCViewModel: ObservableObject {
             docs[existing] = document
         } else { docs.append(document) }
         checks[i].documents = docs; saveChecks()
+        if let vid = checks[i].vesselId { autoPushVessel(vesselId: vid) }
     }
 
     func updateDocument(checkId: String, document: CrewDocument) {
         guard let i = checkIndex(checkId) else { return }
         guard var docs = checks[i].documents, let di = docs.firstIndex(where: { $0.id == document.id }) else { return }
         docs[di] = document; checks[i].documents = docs; saveChecks()
+        if let vid = checks[i].vesselId { autoPushVessel(vesselId: vid) }
     }
 
     func removeDocument(checkId: String, documentId: String) {
         guard let i = checkIndex(checkId) else { return }
+        let vid = checks[i].vesselId
         checks[i].documents?.removeAll { $0.id == documentId }; saveChecks()
+        if let vid { autoPushVessel(vesselId: vid) }
     }
 
     var allExpiringDocuments: [(check: KYCCheck, document: CrewDocument)] {
@@ -488,6 +504,7 @@ class KYCViewModel: ObservableObject {
         docs[di].renewedAt = Date()
         var renewed = newDoc; renewed.previousVersionId = oldDocId
         docs.append(renewed); checks[i].documents = docs; saveChecks()
+        if let vid = checks[i].vesselId { autoPushVessel(vesselId: vid) }
     }
 
     // MARK: - Vessel Documents
@@ -496,11 +513,13 @@ class KYCViewModel: ObservableObject {
         guard let i = vessels.firstIndex(where: { $0.id == vesselId }) else { return }
         var docs = vessels[i].documents ?? []
         docs.append(document); vessels[i].documents = docs; saveVessels()
+        autoPushVessel(vesselId: vesselId)
     }
 
     func removeVesselDocument(vesselId: String, documentId: String) {
         guard let i = vessels.firstIndex(where: { $0.id == vesselId }) else { return }
         vessels[i].documents?.removeAll { $0.id == documentId }; saveVessels()
+        autoPushVessel(vesselId: vesselId)
     }
 
     func renewVesselDocument(vesselId: String, oldDocId: String, newDoc: CrewDocument) {
@@ -510,6 +529,7 @@ class KYCViewModel: ObservableObject {
         var renewed = newDoc; renewed.previousVersionId = oldDocId
         docs.append(renewed); vessels[vi].documents = docs
         Haptics.light(); saveVessels()
+        autoPushVessel(vesselId: vesselId)
     }
 
     struct VesselPortfolioItem: Identifiable {

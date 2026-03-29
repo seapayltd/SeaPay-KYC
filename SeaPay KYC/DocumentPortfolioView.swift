@@ -386,6 +386,9 @@ struct DocumentDetailSheet: View {
     @State var document: CrewDocument
     @Environment(\.dismiss) private var dismiss
     @State private var showRenew = false
+    @State private var previewImage: UIImage?
+    @State private var previewFilename: String?
+    @State private var shareURL: IdentifiableURL?
 
     var body: some View {
         NavigationStack {
@@ -399,13 +402,36 @@ struct DocumentDetailSheet: View {
                     Text(document.statusLabel)
                         .font(Typo.meta).fontWeight(.semibold).foregroundStyle(document.statusColor)
 
-                    // Images
+                    // Images (tappable for full preview + share)
                     ForEach(document.imagePaths, id: \.self) { path in
                         if let data = vm.loadDocumentImage(filename: path), let img = UIImage(data: data) {
-                            Image(uiImage: img).resizable().scaledToFit().frame(maxHeight: 200)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                                .padding(.horizontal, 32)
+                            Button {
+                                previewImage = img
+                                previewFilename = path
+                            } label: {
+                                Image(uiImage: img).resizable().scaledToFit().frame(maxHeight: 200)
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                    .overlay(alignment: .bottomTrailing) {
+                                        Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 10))
+                                            .padding(6).background(.ultraThinMaterial).clipShape(Circle())
+                                            .padding(8)
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.horizontal, 32)
+                        } else {
+                            // File not downloaded yet — show placeholder
+                            HStack(spacing: 8) {
+                                Image(systemName: "doc.circle").font(.system(size: 16)).foregroundStyle(.secondary)
+                                Text(path).font(Typo.meta).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            .padding(.horizontal, 32)
                         }
+                    }
+
+                    // No images uploaded
+                    if document.imagePaths.isEmpty {
+                        Text("No images uploaded for this document").font(Typo.meta).foregroundStyle(.quaternary)
                     }
 
                     VStack(alignment: .leading, spacing: 10) {
@@ -471,7 +497,51 @@ struct DocumentDetailSheet: View {
             .sheet(isPresented: $showRenew) {
                 QuickAddSheet(vm: vm, checkId: checkId, docType: document.type, renewingDocId: document.id)
             }
+            .fullScreenCover(item: Binding(
+                get: { previewImage.map { ImagePreviewItem(image: $0, filename: previewFilename ?? "") } },
+                set: { if $0 == nil { previewImage = nil } }
+            )) { item in
+                ImagePreviewView(image: item.image, filename: item.filename, imagesDir: vm.imagesDir)
+            }
+            .sheet(item: $shareURL) { url in ActivityView(items: [url.url]) }
         }
     }
 }
 
+// MARK: - Image Preview
+
+struct ImagePreviewItem: Identifiable {
+    let id = UUID()
+    let image: UIImage
+    let filename: String
+}
+
+struct ImagePreviewView: View {
+    let image: UIImage
+    let filename: String
+    let imagesDir: URL
+    @Environment(\.dismiss) private var dismiss
+    @State private var shareItem: IdentifiableURL?
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                Image(uiImage: image).resizable().scaledToFit().padding(4)
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { dismiss() } label: { Image(systemName: "xmark").foregroundStyle(.white) }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        let url = imagesDir.appendingPathComponent(filename)
+                        if FileManager.default.fileExists(atPath: url.path) { shareItem = IdentifiableURL(url: url) }
+                    } label: { Image(systemName: "square.and.arrow.up").foregroundStyle(.white) }
+                }
+            }
+            .toolbarBackground(.hidden, for: .navigationBar)
+            .sheet(item: $shareItem) { url in ActivityView(items: [url.url]) }
+        }
+    }
+}
