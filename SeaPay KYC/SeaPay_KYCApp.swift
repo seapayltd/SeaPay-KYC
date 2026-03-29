@@ -63,7 +63,7 @@ struct SeaPay_KYCApp: App {
                     } else if ownerAccessCode != nil {
                         OwnerDashboardView(onSignOut: { ownerAccessCode = nil })
                     } else if appState.isConfigured {
-                        HomeView(vm: vm, appState: appState)
+                        DashboardView(vm: vm, appState: appState)
                     } else {
                         WelcomeView(
                             onAgent: { showAgentSetup = true },
