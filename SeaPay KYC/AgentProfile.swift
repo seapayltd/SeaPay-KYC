@@ -9,9 +9,12 @@
 import Foundation
 import CryptoKit
 
-// MARK: - Agent Role
+// MARK: - App Role (unified — agents, maritime, external)
 
-enum AgentRole: String, Codable, CaseIterable, Identifiable {
+typealias AgentRole = AppRole  // Backward compatibility
+
+enum AppRole: String, Codable, CaseIterable, Identifiable {
+    // Agent roles (full access with API key)
     case dpa = "Designated Person Ashore"
     case fleetManager = "Fleet Manager"
     case portAgent = "Port Agent"
@@ -20,9 +23,44 @@ enum AgentRole: String, Codable, CaseIterable, Identifiable {
     case technicalSuperintendent = "Technical Superintendent"
     case surveyor = "Surveyor"
     case legalCounsel = "Legal Counsel"
+
+    // Maritime roles (collaborators — no API key needed)
+    case master = "Master / Captain"
+    case chiefOfficer = "Chief Officer"
+    case chiefEngineer = "Chief Engineer"
+    case broker = "Broker"
+    case beneficialOwner = "Beneficial Owner"
+    case charterer = "Charterer"
+    case insurer = "Insurer / P&I"
+    case classSurveyor = "Class Surveyor"
+
     case other = "Other"
 
     var id: String { rawValue }
+
+    enum RoleCategory { case agent, maritime, external }
+
+    var category: RoleCategory {
+        switch self {
+        case .dpa, .fleetManager, .portAgent, .complianceOfficer,
+             .crewManager, .technicalSuperintendent, .surveyor, .legalCounsel:
+            return .agent
+        case .master, .chiefOfficer, .chiefEngineer:
+            return .maritime
+        case .broker, .beneficialOwner, .charterer, .insurer, .classSurveyor, .other:
+            return .external
+        }
+    }
+
+    /// Roles shown in the agent setup (full access)
+    static var agentRoles: [AppRole] {
+        [.dpa, .fleetManager, .portAgent, .complianceOfficer, .crewManager, .technicalSuperintendent, .surveyor, .legalCounsel, .other]
+    }
+
+    /// Roles shown in the collaborator setup
+    static var collaboratorRoles: [AppRole] {
+        allCases
+    }
 
     var icon: String {
         switch self {
@@ -34,6 +72,14 @@ enum AgentRole: String, Codable, CaseIterable, Identifiable {
         case .technicalSuperintendent: return "wrench.and.screwdriver"
         case .surveyor: return "doc.text.magnifyingglass"
         case .legalCounsel: return "scale.3d"
+        case .master: return "helm"
+        case .chiefOfficer: return "person.badge.shield.checkmark"
+        case .chiefEngineer: return "gearshape.2"
+        case .broker: return "briefcase"
+        case .beneficialOwner: return "person.badge.key"
+        case .charterer: return "sailboat"
+        case .insurer: return "shield"
+        case .classSurveyor: return "magnifyingglass"
         case .other: return "person.badge.key"
         }
     }
@@ -48,7 +94,15 @@ enum AgentRole: String, Codable, CaseIterable, Identifiable {
         case .technicalSuperintendent: return "Tech Supt"
         case .surveyor: return "Surveyor"
         case .legalCounsel: return "Legal"
-        case .other: return "Agent"
+        case .master: return "Master"
+        case .chiefOfficer: return "Chief Off."
+        case .chiefEngineer: return "Chief Eng."
+        case .broker: return "Broker"
+        case .beneficialOwner: return "UBO"
+        case .charterer: return "Charterer"
+        case .insurer: return "Insurer"
+        case .classSurveyor: return "Surveyor"
+        case .other: return "Other"
         }
     }
 }

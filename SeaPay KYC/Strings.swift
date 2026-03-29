@@ -105,15 +105,16 @@ enum L10n {
         static let page1Sub = String(localized: "OceanCheck helps you verify crew, track documents, and manage vessel compliance — all from your iPhone.")
         static let page2Title = String(localized: "Verify Anyone\nin the Chain")
         static let page2Sub = String(localized: "From seafarers to beneficial owners, OceanCheck covers every entity in the maritime compliance chain.")
-        static let page3Title = String(localized: "What You'll Need")
-        static let page3Sub = String(localized: "OceanCheck connects to verification services that require API credentials.")
+        static let page3Title = String(localized: "Everyone Has a Role")
+        static let page3Sub = String(localized: "OceanCheck adapts to how you work — whether you're running compliance or collaborating on a vessel.")
     }
 
     // MARK: - Roles
 
     enum Role {
-        static let agent = String(localized: "Agent")
-        static let subject = String(localized: "Crew / Subject")
+        static let agent = String(localized: "Compliance Agent")
+        static let collaborator = String(localized: "Join a Workspace")
+        static let verify = String(localized: "Verify My Identity")
         static let owner = String(localized: "Vessel Owner")
     }
 

@@ -22,7 +22,7 @@ struct HomeView: View {
     @State private var showCSVExport = false
     @State private var csvURL: URL?
     @State private var searchText = ""
-    @State private var tab = 0
+    @State private var tab = UserDefaults.standard.bool(forKey: "isCollaborator") ? 2 : 0  // Collaborators start on Fleet
     @State private var allFilter = 0 // 0=All, 1=Flagged, 2=Expiring, 3=Pending
 
     // iPad sidebar

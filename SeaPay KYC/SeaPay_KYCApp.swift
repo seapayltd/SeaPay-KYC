@@ -2,12 +2,12 @@
 //  SeaPay_KYCApp.swift
 //  OceanCheck
 //
-//  Default to agent. Subject mode entered via "I have a code" on home screen.
+//  Entry flow: Agent (full), Collaborator (workspace), Verify (one-time), Owner (read-only).
 //
 
 import SwiftUI
 
-enum AppMode: String { case agent, subject }
+enum AppMode: String { case agent, collaborator, verifying, owner }
 
 @Observable
 class AppState {
@@ -29,6 +29,7 @@ struct SeaPay_KYCApp: App {
     @State private var showImportSheet = false
     @State private var showSplash = true
     @State private var showAgentSetup = false
+    @State private var showCollaboratorSetup = false
     @State private var showOwnerSetup = false
     @State private var ownerImportSuccess = false
     @State private var isLocked = BiometricService.isEnabled
@@ -66,7 +67,8 @@ struct SeaPay_KYCApp: App {
                     } else {
                         WelcomeView(
                             onAgent: { showAgentSetup = true },
-                            onSubject: { appState.showSubjectFlow = true },
+                            onCollaborator: { showCollaboratorSetup = true },
+                            onVerify: { appState.showSubjectFlow = true },
                             onOwner: { showOwnerSetup = true }
                         )
                     }
@@ -74,6 +76,9 @@ struct SeaPay_KYCApp: App {
                 .animation(.smooth(duration: 0.35), value: appState.isConfigured)
                 .fullScreenCover(isPresented: $showAgentSetup) {
                     SequentialSetupView(vm: vm, appState: appState, ownerAccessCode: $ownerAccessCode, startAtStep: 1)
+                }
+                .fullScreenCover(isPresented: $showCollaboratorSetup) {
+                    CollaboratorSetupView(vm: vm, appState: appState)
                 }
                 .sheet(isPresented: $showOwnerSetup) {
                     OwnerSetupView(ownerAccessCode: $ownerAccessCode)
@@ -194,7 +199,8 @@ struct SeaPay_KYCApp: App {
 
 struct WelcomeView: View {
     var onAgent: () -> Void
-    var onSubject: () -> Void
+    var onCollaborator: () -> Void
+    var onVerify: () -> Void
     var onOwner: () -> Void
 
     @State private var appear = false
@@ -216,21 +222,25 @@ struct WelcomeView: View {
                 .opacity(appear ? 1 : 0)
                 .offset(y: appear ? 0 : 10)
 
-                Spacer().frame(height: 44)
+                Spacer().frame(height: 36)
 
                 // Role cards — staggered fade-in
-                VStack(spacing: 12) {
-                    roleCard(icon: "shield.checkered", title: "Agent",
-                             subtitle: "Manage vessels & verify crew", action: onAgent)
+                VStack(spacing: 10) {
+                    roleCard(icon: "shield.checkered", title: "Compliance Agent",
+                             subtitle: "Manage vessels, verify crew, run compliance", action: onAgent)
                         .opacity(appear ? 1 : 0).offset(y: appear ? 0 : 15)
 
-                    roleCard(icon: "person.badge.shield.checkmark", title: "Crew / Subject",
-                             subtitle: "Verify your identity", action: onSubject)
-                        .opacity(appear ? 1 : 0).offset(y: appear ? 0 : 20)
+                    roleCard(icon: "person.3", title: "Join a Workspace",
+                             subtitle: "I was invited by another agent", action: onCollaborator)
+                        .opacity(appear ? 1 : 0).offset(y: appear ? 0 : 18)
+
+                    roleCard(icon: "person.badge.shield.checkmark", title: "Verify My Identity",
+                             subtitle: "I received a verification link", action: onVerify)
+                        .opacity(appear ? 1 : 0).offset(y: appear ? 0 : 21)
 
                     roleCard(icon: "sailboat", title: "Vessel Owner",
                              subtitle: "View your vessel's compliance", action: onOwner)
-                        .opacity(appear ? 1 : 0).offset(y: appear ? 0 : 25)
+                        .opacity(appear ? 1 : 0).offset(y: appear ? 0 : 24)
                 }
                 .padding(.horizontal, 32)
 

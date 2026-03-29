@@ -31,12 +31,12 @@ struct OnboardingView: View {
              String(localized: "Remote: send a link, they verify themselves")]
         ),
         (
-            "key",
+            "person.3.sequence",
             L10n.Onboarding.page3Title,
             L10n.Onboarding.page3Sub,
-            [String(localized: "Didit API key — for identity & AML verification"),
-             String(localized: "Workflow ID — for remote crew invitations"),
-             String(localized: "Claude API key (optional) — for certificate OCR")]
+            [String(localized: "Compliance agents — full access with API credentials"),
+             String(localized: "Collaborators — join a workspace with just a code"),
+             String(localized: "Crew & owners — verify identity or view compliance")]
         )
     ]
 

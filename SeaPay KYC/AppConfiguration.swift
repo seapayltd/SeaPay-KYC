@@ -47,7 +47,9 @@ enum AppConfiguration: Sendable {
 
     // MARK: - Helpers
 
-    nonisolated static var isConfigured: Bool { !apiKey.isEmpty }
+    nonisolated static var isConfigured: Bool {
+        !apiKey.isEmpty || UserDefaults.standard.bool(forKey: "isCollaborator")
+    }
 
     nonisolated private static func plistValue(for key: String) -> String? {
         Bundle.main.infoDictionary?[key] as? String
