@@ -560,6 +560,15 @@ struct SettingsSheet: View {
                         }
                     }
 
+                    // MARK: Collaboration
+                    settingsSection("Collaboration") {
+                        NavigationLink {
+                            WorkspaceView(vm: vm)
+                        } label: {
+                            settingsActionRow(icon: "person.3", label: "Workspace", detail: "Multi-agent sync")
+                        }
+                    }
+
                     // MARK: Data
                     settingsSection("Data") {
                         if !vm.offlineQueue.isEmpty {
