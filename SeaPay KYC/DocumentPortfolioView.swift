@@ -402,27 +402,53 @@ struct DocumentDetailSheet: View {
                     Text(document.statusLabel)
                         .font(Typo.meta).fontWeight(.semibold).foregroundStyle(document.statusColor)
 
-                    // Images (tappable for full preview + share)
+                    // Documents (images + PDFs, tappable for preview + share)
                     ForEach(document.imagePaths, id: \.self) { path in
-                        if let data = vm.loadDocumentImage(filename: path), let img = UIImage(data: data) {
+                        if let data = vm.loadDocumentImage(filename: path) {
+                            let isPDF = path.lowercased().hasSuffix(".pdf") || data.prefix(5) == Data([0x25, 0x50, 0x44, 0x46, 0x2D])
                             Button {
-                                previewImage = img
                                 previewFilename = path
-                            } label: {
-                                Image(uiImage: img).resizable().scaledToFit().frame(maxHeight: 200)
-                                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                                    .overlay(alignment: .bottomTrailing) {
-                                        Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 10))
-                                            .padding(6).background(.ultraThinMaterial).clipShape(Circle())
-                                            .padding(8)
+                                if isPDF {
+                                    // Share/preview PDF directly
+                                    let url = vm.imagesDir.appendingPathComponent(path)
+                                    if FileManager.default.fileExists(atPath: url.path) {
+                                        shareURL = IdentifiableURL(url: url)
                                     }
+                                } else if let img = UIImage(data: data) {
+                                    previewImage = img
+                                }
+                            } label: {
+                                if isPDF {
+                                    // PDF thumbnail
+                                    HStack(spacing: 12) {
+                                        Image(systemName: "doc.richtext").font(.system(size: 24)).foregroundStyle(.secondary)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(path).font(Typo.body).lineLimit(1)
+                                            Text("PDF \u{2022} \(ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file))")
+                                                .font(Typo.meta).foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        Image(systemName: "eye").font(.system(size: 14)).foregroundStyle(.secondary)
+                                    }
+                                    .padding(12)
+                                    .background(Color.surfaceMuted.opacity(0.4))
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                } else if let img = UIImage(data: data) {
+                                    Image(uiImage: img).resizable().scaledToFit().frame(maxHeight: 200)
+                                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                                        .overlay(alignment: .bottomTrailing) {
+                                            Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 10))
+                                                .padding(6).background(.ultraThinMaterial).clipShape(Circle())
+                                                .padding(8)
+                                        }
+                                }
                             }
                             .buttonStyle(.plain)
                             .padding(.horizontal, 32)
                         } else {
-                            // File not downloaded yet — show placeholder
+                            // File not downloaded yet
                             HStack(spacing: 8) {
-                                Image(systemName: "doc.circle").font(.system(size: 16)).foregroundStyle(.secondary)
+                                Image(systemName: "icloud.and.arrow.down").font(.system(size: 16)).foregroundStyle(.secondary)
                                 Text(path).font(Typo.meta).foregroundStyle(.secondary).lineLimit(1)
                             }
                             .padding(.horizontal, 32)
