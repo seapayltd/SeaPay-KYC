@@ -199,6 +199,7 @@ enum AppError: LocalizedError {
     case missingRequiredField(String)
     case verificationFailed(String)
     case sessionExpired
+    case queued(String)
 
     var errorDescription: String? {
         switch self {
@@ -236,6 +237,8 @@ enum AppError: LocalizedError {
             return reason
         case .sessionExpired:
             return "Session expired. Please start again."
+        case .queued(let msg):
+            return msg
         }
     }
 }

@@ -62,11 +62,21 @@ extension KYCViewModel {
         guard let i = checkIndex(checkId) else { throw AppError.verificationFailed("Check not found") }
 
         checks[i].status = .inProgress; saveChecks()
-        _ = saveImages(checkId: checkId, front: frontImage, back: backImage)
+        let filenames = saveImages(checkId: checkId, front: frontImage, back: backImage)
 
         let api = services.api
         APIUsageTracker.track(.idScan)
-        let (idResp, idRaw) = try await api.verifyID(frontImage: frontImage, backImage: backImage, vendorData: checkId)
+        let idResp: IDVerificationResponse
+        let idRaw: Data
+        do {
+            (idResp, idRaw) = try await api.verifyID(frontImage: frontImage, backImage: backImage, vendorData: checkId)
+        } catch where !isOnline {
+            // Offline — queue for retry when connectivity returns
+            offlineQueue.enqueueIDScan(checkId: checkId, checkName: checks[i].customerName,
+                frontImageFilename: filenames.first ?? "", backImageFilename: filenames.count > 1 ? filenames[1] : nil)
+            checks[i].status = .pending; saveChecks()
+            throw AppError.queued("Verification queued — will run when online")
+        }
         let id = idResp.idVerification
 
         checks[i].extractedName = id?.extractedFullName

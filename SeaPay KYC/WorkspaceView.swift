@@ -539,6 +539,10 @@ struct WorkspaceDetailView: View {
     }
 
     private func syncAllVessels() async {
+        guard vm.isOnline else {
+            self.error = "You're offline — pull down to sync when connectivity returns"
+            return
+        }
         isSyncingAll = true; defer { isSyncingAll = false }
         let total = workspaceVessels.count
         guard total > 0 else { return }

@@ -22,7 +22,17 @@ private let vmLogger = Logger(subsystem: "com.seapay.kyc", category: "ViewModel"
 class KYCViewModel: ObservableObject {
     @Published var checks: [KYCCheck] = []
     @Published var vessels: [Vessel] = []
-    @Published var isOnline = true
+    @Published var isOnline = true {
+        didSet {
+            if isOnline && !oldValue {
+                // Connectivity restored — flush all pending work
+                Task {
+                    await offlineQueue.processQueue(vm: self)
+                    await MainActor.run { pushPendingVessels() }
+                }
+            }
+        }
+    }
     @Published var pollingError: String?
     @Published var transferLog: [TransferRecord] = []
     let offlineQueue = OfflineQueue.shared
@@ -267,10 +277,18 @@ class KYCViewModel: ObservableObject {
         imageCache.removeObject(forKey: filename as NSString)
     }
 
+    /// Vessel IDs waiting to push when connectivity returns
+    private var pendingPushVesselIds: Set<String> = []
+
     /// Auto-push a vessel's full data (JSON + files) to the workspace backend.
-    /// Called after any document add/update so collaborators get changes automatically.
+    /// If offline, queues the vessel ID and pushes when connectivity returns.
     func autoPushVessel(vesselId: String) {
-        guard CollaborationService.shared.isConnected else { return }
+        guard CollaborationService.shared.isConnected else {
+            pendingPushVesselIds.insert(vesselId); return
+        }
+        guard isOnline else {
+            pendingPushVesselIds.insert(vesselId); return
+        }
         guard let vessel = vessels.first(where: { $0.id == vesselId }) else { return }
         Task {
             let activityId = SyncActivityMonitor.shared.begin("Syncing \(vessel.name)", type: .push)
@@ -279,6 +297,13 @@ class KYCViewModel: ObservableObject {
             await FilesSyncService.shared.uploadMissingFiles(vesselId: vesselId, vm: self)
             SyncActivityMonitor.shared.complete(activityId, success: ok)
         }
+    }
+
+    /// Flush all pending vessel pushes (called when connectivity restored)
+    private func pushPendingVessels() {
+        let ids = pendingPushVesselIds
+        pendingPushVesselIds.removeAll()
+        for id in ids { autoPushVessel(vesselId: id) }
     }
 
     /// Queue a file for background upload to the workspace (if connected).
