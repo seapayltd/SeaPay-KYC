@@ -178,6 +178,42 @@ switch ($action) {
         jsonResponse(['ok' => true]);
         break;
 
+    // ─── GDPR ART. 17 ERASURE ───
+    case 'erase':
+        $auth = authenticate();
+        $checkId = trim($_GET['check_id'] ?? '');
+        if (!$checkId) jsonError(400, 'check_id required');
+
+        $db = getDB();
+
+        // Remove check data from all snapshots containing this check
+        $stmt = $db->prepare("SELECT id, checks_json FROM sync_snapshots WHERE workspace_id = ? AND checks_json IS NOT NULL");
+        $stmt->execute([$auth['workspace_id']]);
+        $rows = $stmt->fetchAll();
+
+        $updated = 0;
+        foreach ($rows as $row) {
+            $checks = json_decode($row['checks_json'], true);
+            if (!is_array($checks)) continue;
+            $filtered = array_values(array_filter($checks, function($c) use ($checkId) {
+                return ($c['id'] ?? '') !== $checkId;
+            }));
+            if (count($filtered) < count($checks)) {
+                $db->prepare("UPDATE sync_snapshots SET checks_json = ? WHERE id = ?")
+                   ->execute([json_encode($filtered, JSON_UNESCAPED_UNICODE), $row['id']]);
+                $updated++;
+            }
+        }
+
+        // Audit
+        $db->prepare("INSERT INTO audit_trail (id, workspace_id, agent_id, agent_name, action, entity_type, entity_id, entity_name)
+                      VALUES (?, ?, ?, ?, 'gdpr_erasure', 'check', ?, 'Art. 17 erasure')")
+           ->execute([uuid(), $auth['workspace_id'], $auth['agent_id'], $auth['agent_name'], $checkId]);
+
+        logActivity($auth['workspace_id'], $auth['agent_id'], $auth['agent_name'], 'gdpr_erasure', 'check', $checkId);
+        jsonResponse(['ok' => true, 'snapshots_updated' => $updated]);
+        break;
+
     default:
-        jsonError(400, 'Unknown action. Use: push, pull, status, delete_snapshot');
+        jsonError(400, 'Unknown action. Use: push, pull, status, delete_snapshot, erase');
 }

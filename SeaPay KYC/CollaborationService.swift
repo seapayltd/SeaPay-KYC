@@ -139,13 +139,15 @@ final class CollaborationService: ObservableObject {
         didSet { saveWorkspaces() }
     }
 
-    // Currently selected workspace (for API calls)
+    // Currently selected workspace — token stored in Keychain, not UserDefaults
     private var _workspace: WorkspaceInfo? {
         didSet {
             if let ws = _workspace {
+                KeychainService.save(ws.token, for: .workspaceToken)
                 let data = try? JSONEncoder().encode(ws)
                 UserDefaults.standard.set(data, forKey: "activeWorkspace")
             } else {
+                KeychainService.delete(.workspaceToken)
                 UserDefaults.standard.removeObject(forKey: "activeWorkspace")
             }
         }
@@ -160,15 +162,19 @@ final class CollaborationService: ObservableObject {
     }
 
     init() {
-        // Load stored workspaces
-        if let data = UserDefaults.standard.data(forKey: "storedWorkspaces") {
+        // Load stored workspaces from Keychain
+        if let json = KeychainService.get(.storedWorkspacesJSON),
+           let data = json.data(using: .utf8) {
             storedWorkspaces = (try? JSONDecoder().decode([WorkspaceInfo].self, from: data)) ?? []
+        } else if let data = UserDefaults.standard.data(forKey: "storedWorkspaces") {
+            // Migration from UserDefaults → Keychain
+            storedWorkspaces = (try? JSONDecoder().decode([WorkspaceInfo].self, from: data)) ?? []
+            UserDefaults.standard.removeObject(forKey: "storedWorkspaces")
         }
-        // Load active workspace (backward compatible)
+        // Load active workspace
         if let data = UserDefaults.standard.data(forKey: "activeWorkspace") {
             _workspace = try? JSONDecoder().decode(WorkspaceInfo.self, from: data)
         }
-        // Migration: if we have an active workspace but empty stored list, add it
         if let ws = _workspace, !storedWorkspaces.contains(where: { $0.workspaceId == ws.workspaceId }) {
             storedWorkspaces.append(ws)
         }
@@ -187,8 +193,10 @@ final class CollaborationService: ObservableObject {
     }
 
     private func saveWorkspaces() {
-        let data = try? JSONEncoder().encode(storedWorkspaces)
-        UserDefaults.standard.set(data, forKey: "storedWorkspaces")
+        if let data = try? JSONEncoder().encode(storedWorkspaces),
+           let json = String(data: data, encoding: .utf8) {
+            KeychainService.save(json, for: .storedWorkspacesJSON)
+        }
     }
 
     private func addToStored(_ info: WorkspaceInfo) {
@@ -272,6 +280,11 @@ final class CollaborationService: ObservableObject {
     func disconnect() {
         _workspace = nil
         syncVersion = 0
+    }
+
+    /// GDPR Art. 17 — request server-side erasure of a check's data from all snapshots
+    func requestErasure(checkId: String) async throws {
+        _ = try await authenticatedRequest("sync.php?action=erase&check_id=\(checkId)", method: "POST")
     }
 
     // MARK: - Sync

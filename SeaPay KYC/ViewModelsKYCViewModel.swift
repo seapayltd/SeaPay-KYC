@@ -103,7 +103,8 @@ class KYCViewModel: ObservableObject {
             let consentURL = self.consentFile
             let auditURL = self.auditFile
             let loadedConsent = EncryptionService.readDecrypted(from: consentURL).flatMap { try? decoder.decode([ConsentRecord].self, from: $0) } ?? []
-            let loadedAudit = (try? Data(contentsOf: auditURL)).flatMap { try? decoder.decode([AuditEvent].self, from: $0) } ?? []
+            EncryptionService.migrateIfNeeded(at: auditURL)
+            let loadedAudit = EncryptionService.readDecrypted(from: auditURL).flatMap { try? decoder.decode([AuditEvent].self, from: $0) } ?? []
 
             self.checks = loadedChecks
             self.vessels = loadedVessels
@@ -159,7 +160,7 @@ class KYCViewModel: ObservableObject {
 
     func saveAuditLog() {
         let e = JSONEncoder(); e.dateEncodingStrategy = .iso8601; e.outputFormatting = .prettyPrinted
-        if let data = try? e.encode(auditLog) { try? data.write(to: auditFile) } // Audit log not encrypted — for forensic access
+        if let data = try? e.encode(auditLog) { try? EncryptionService.writeEncrypted(data, to: auditFile) }
     }
 
     func logAudit(_ action: AuditEvent.AuditAction, entityId: String, entityName: String, detail: String? = nil) {
@@ -898,10 +899,8 @@ class KYCViewModel: ObservableObject {
         checks[i].documents = docs
 
         // Auto-crop face from ID photo for profile picture (runs in background)
+        // Only set profile photo from a successful face crop — never use the full passport scan
         if checks[i].profilePhoto == nil, let firstPath = checks[i].documentImagePaths?.first {
-            // Set full image as placeholder immediately
-            checks[i].profilePhoto = firstPath
-            // Then crop face in background via Claude
             let checkId = checks[i].id
             if let imageData = loadDocumentImage(filename: firstPath) {
                 Task {

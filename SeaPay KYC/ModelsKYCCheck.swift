@@ -44,6 +44,8 @@ struct KYCCheck: Identifiable, Codable, Hashable {
     let createdAt: Date
     var completedAt: Date?
     var agentNotes: String?
+    var legalBasis: LegalBasis?
+    var dataRetentionDate: Date?
     var sessionId: String?
     var hostedVerifyURL: String?
     var vesselId: String?
@@ -85,6 +87,14 @@ struct KYCCheck: Identifiable, Codable, Hashable {
         case onLeave = "On Leave"
         case rotation = "Rotation"
         case terminated = "Terminated"
+        var id: String { rawValue }
+    }
+
+    enum LegalBasis: String, Codable, CaseIterable, Identifiable {
+        case consent = "Consent (Art. 6(1)(a))"
+        case contract = "Contract (Art. 6(1)(b))"
+        case legalObligation = "Legal Obligation (Art. 6(1)(c))"
+        case legitimateInterest = "Legitimate Interest (Art. 6(1)(f))"
         var id: String { rawValue }
     }
 
@@ -302,7 +312,7 @@ struct KYCCheck: Identifiable, Codable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case id, customerId, customerName, agentId, agentName, checkType, status, entityType
-        case createdAt, completedAt, agentNotes, sessionId, hostedVerifyURL, vesselId, crewRank, documents, profilePhoto, documentImagePaths
+        case createdAt, completedAt, agentNotes, legalBasis, dataRetentionDate, sessionId, hostedVerifyURL, vesselId, crewRank, documents, profilePhoto, documentImagePaths
         case latitude, longitude
         case companyName, registrationNumber, jurisdiction, ownershipPercent
         case phoneNumber, emailAddress, emergencyContact, nextOfKin

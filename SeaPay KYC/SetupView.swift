@@ -615,6 +615,13 @@ struct SettingsSheet: View {
 
                     // MARK: Privacy & Compliance
                     settingsSection("Privacy & Compliance") {
+                        // Privacy Policy link
+                        if let url = URL(string: GDPRConstants.privacyPolicyURL) {
+                            Link(destination: url) {
+                                settingsActionRow(icon: "hand.raised", label: "Privacy Policy", detail: "")
+                            }
+                            Divider().padding(.leading, 44)
+                        }
                         NavigationLink {
                             RetentionSettingsView(vm: vm)
                         } label: {
@@ -631,6 +638,13 @@ struct SettingsSheet: View {
                             AuditLogView(vm: vm)
                         } label: {
                             settingsActionRow(icon: "list.clipboard", label: "Audit Log", detail: "\(vm.auditLog.count) event\(vm.auditLog.count == 1 ? "" : "s")")
+                        }
+                        Divider().padding(.leading, 44)
+                        // GDPR Art. 17 Erasure
+                        NavigationLink {
+                            GDPRErasureView(vm: vm)
+                        } label: {
+                            settingsActionRow(icon: "trash.circle", label: "Data Erasure (Art. 17)", detail: "Right to be forgotten")
                         }
                         if !vm.retentionFlaggedChecks.isEmpty {
                             Divider().padding(.leading, 44)

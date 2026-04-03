@@ -204,6 +204,89 @@ struct AuditLogView: View {
         case .consentGranted: return "hand.thumbsup"
         case .consentWithdrawn: return "hand.thumbsdown"
         case .retentionFlagged: return "clock.badge.exclamationmark"
+        case .gdprErasure: return "trash.circle"
+        }
+    }
+}
+
+// MARK: - GDPR Art. 17 Erasure View
+
+struct GDPRErasureView: View {
+    @ObservedObject var vm: KYCViewModel
+    @State private var searchName = ""
+    @State private var showConfirm = false
+    @State private var erasedCount = 0
+
+    var body: some View {
+        VStack(spacing: 20) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Right to Erasure").font(Typo.context)
+                Text("GDPR Article 17 — Enter the data subject's name to permanently erase all their personal data from this device and the workspace server.")
+                    .font(Typo.meta).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 20).padding(.top, 16)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Subject Name").font(Typo.meta).foregroundStyle(.tertiary)
+                TextField("Full name", text: $searchName)
+                    .font(Typo.body).padding(11)
+                    .background(Color.surfaceMuted).clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+            .padding(.horizontal, 20)
+
+            let matches = vm.checks.filter {
+                !searchName.isEmpty && (
+                    $0.customerName.localizedCaseInsensitiveContains(searchName) ||
+                    ($0.extractedName ?? "").localizedCaseInsensitiveContains(searchName)
+                )
+            }
+
+            if !matches.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("\(matches.count) matching record\(matches.count == 1 ? "" : "s")").font(Typo.meta).foregroundStyle(.secondary)
+                    ForEach(matches) { check in
+                        HStack {
+                            Text(check.displayName).font(Typo.body)
+                            Spacer()
+                            Text(check.status.rawValue).font(Typo.meta).foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+
+            Spacer()
+
+            if erasedCount > 0 {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.clear_)
+                    Text("\(erasedCount) record\(erasedCount == 1 ? "" : "s") permanently erased").font(Typo.body)
+                }
+                .padding(.horizontal, 20)
+            }
+
+            Button {
+                showConfirm = true
+            } label: {
+                Text("Erase All Data")
+            }
+            .buttonStyle(PrimaryButtonStyle(isEnabled: !matches.isEmpty))
+            .disabled(matches.isEmpty)
+            .padding(.horizontal, 24).padding(.bottom, 20)
+        }
+        .background(Color.surface.ignoresSafeArea())
+        .navigationTitle("Data Erasure")
+        .navigationBarTitleDisplayMode(.inline)
+        .alert("Confirm Permanent Erasure", isPresented: $showConfirm) {
+            Button("Erase", role: .destructive) {
+                erasedCount = GDPRService.eraseSubjectData(name: searchName, vm: vm).count
+                searchName = ""
+                Haptics.warning()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will permanently delete all personal data, documents, images, and consent records for this person. This action cannot be undone. Server data will also be erased.")
         }
     }
 }

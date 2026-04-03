@@ -18,6 +18,8 @@ enum KeychainService: Sendable {
         case workflowID
         case diditAccessToken
         case appMode // "agent" or "subject"
+        case workspaceToken       // active workspace bearer token
+        case storedWorkspacesJSON // multi-workspace array
     }
 
     nonisolated static func save(_ value: String, for key: Key) {

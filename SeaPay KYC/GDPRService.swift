@@ -20,12 +20,17 @@ struct ConsentRecord: Codable, Identifiable {
 
     var isActive: Bool { withdrawnAt == nil }
 
-    enum ConsentType: String, Codable {
+    enum ConsentType: String, Codable, CaseIterable {
         case identityVerification = "Identity Verification"
         case amlScreening = "AML/Sanctions Screening"
         case proofOfAddress = "Proof of Address"
         case dataProcessing = "Data Processing"
         case dataTransfer = "Data Transfer to Third Party"
+        case contactData = "Contact Data Collection"
+        case employmentData = "Employment Data Processing"
+        case familyData = "Emergency Contact / Next of Kin"
+        case geolocation = "Geolocation Data"
+        case documentRetention = "Document Retention Beyond Verification"
     }
 }
 
@@ -52,6 +57,7 @@ struct AuditEvent: Codable, Identifiable {
         case consentGranted = "Consent Granted"
         case consentWithdrawn = "Consent Withdrawn"
         case retentionFlagged = "Retention Flagged"
+        case gdprErasure = "GDPR Art. 17 Erasure"
     }
 }
 
@@ -60,9 +66,31 @@ struct AuditEvent: Codable, Identifiable {
 struct RetentionPolicy: Codable {
     var retentionYears: Int       // Default 5 (MLC 2006)
     var autoFlagExpired: Bool     // Show warning on records past retention
-    var autoDeleteExpired: Bool   // Actually delete (off by default)
+    var autoDeleteExpired: Bool   // Actually delete (defaults to true for GDPR compliance)
 
-    static let `default` = RetentionPolicy(retentionYears: 5, autoFlagExpired: true, autoDeleteExpired: false)
+    static let `default` = RetentionPolicy(retentionYears: 5, autoFlagExpired: true, autoDeleteExpired: true)
+
+    /// Per-category retention schedules (years)
+    static let schedules: [String: Int] = [
+        "crew_documents": 5,     // MLC 2006
+        "aml_screening": 6,     // FCA requirement
+        "consent_records": 3,   // After last activity
+        "beneficial_owner": 5,  // 4AMLD/5AMLD
+        "employment_data": 3,   // Post-contract
+        "contact_data": 1,      // After relationship ends
+    ]
+}
+
+// MARK: - Privacy & Legal
+
+enum GDPRConstants {
+    static let privacyPolicyURL = "https://seapay.me/oceancheck/privacy"
+    static let dpaURL = "https://seapay.me/oceancheck/dpa"
+    static let dataControllerName = "Nave Magna Ltd"
+    static let dataControllerEmail = "privacy@seapay.me"
+    static let dpoContact = "dpo@seapay.me"
+    static let breachNotificationEmail = "breach@seapay.me"
+    static let maxBreachNotificationHours = 72
 }
 
 // MARK: - GDPR Service
@@ -90,6 +118,43 @@ enum GDPRService {
         store[i].withdrawnAt = Date()
         let agentName = AgentProfile.current?.fullName ?? "Agent"
         logAudit(action: .consentWithdrawn, entityId: store[i].checkId, entityName: store[i].subjectName, performedBy: agentName, detail: store[i].consentType.rawValue, log: &auditBuffer)
+    }
+
+    /// GDPR Art. 17 — Erase all PII for a data subject. Returns list of erased check IDs.
+    @MainActor
+    static func eraseSubjectData(name: String, vm: KYCViewModel) -> [String] {
+        let matching = vm.checks.filter { $0.customerName.localizedCaseInsensitiveContains(name) || ($0.extractedName ?? "").localizedCaseInsensitiveContains(name) }
+        var erasedIds: [String] = []
+        for check in matching {
+            // Delete local images
+            for path in (check.documentImagePaths ?? []) + (check.documents ?? []).flatMap(\.imagePaths) {
+                try? FileManager.default.removeItem(at: vm.imagesDir.appendingPathComponent(path))
+            }
+            if let photo = check.profilePhoto {
+                try? FileManager.default.removeItem(at: vm.imagesDir.appendingPathComponent(photo))
+            }
+            // Remove from checks array
+            vm.checks.removeAll { $0.id == check.id }
+            erasedIds.append(check.id)
+            // Audit
+            logAudit(action: .gdprErasure, entityId: check.id, entityName: name,
+                     performedBy: AgentProfile.current?.fullName ?? "Agent",
+                     detail: "GDPR Art. 17 erasure", log: &auditBuffer)
+        }
+        // Remove consent records for erased checks
+        vm.consentRecords.removeAll { erasedIds.contains($0.checkId) }
+        vm.saveChecks()
+        vm.saveConsentRecords()
+        vm.saveAuditLog()
+        // Request server-side deletion if connected
+        if CollaborationService.shared.isConnected {
+            Task {
+                for id in erasedIds {
+                    try? await CollaborationService.shared.requestErasure(checkId: id)
+                }
+            }
+        }
+        return erasedIds
     }
 
     // MARK: - Audit Log
