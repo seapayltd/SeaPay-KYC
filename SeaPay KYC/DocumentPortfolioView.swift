@@ -283,7 +283,7 @@ struct QuickAddSheet: View {
                     Text(docType.displayName).font(Typo.context)
 
                     // Photo
-                    if let data = capturedImage, let img = UIImage(data: data) {
+                    if let data = capturedImage, let img = UIImage(data: data) ?? Self.renderPDF(data) {
                         ZStack(alignment: .bottomTrailing) {
                             Image(uiImage: img).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: 160)
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -390,6 +390,24 @@ struct QuickAddSheet: View {
     @State private var isSaving = false
     @State private var saveError: String?
 
+    static func renderPDF(_ data: Data?) -> UIImage? {
+        guard let data, data.count > 4, data[0] == 0x25, data[1] == 0x50 else { return nil }
+        guard let provider = CGDataProvider(data: data as CFData), let doc = CGPDFDocument(provider), let page = doc.page(at: 1) else { return nil }
+        let rect = page.getBoxRect(.mediaBox); let scale: CGFloat = 2.0
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: rect.width * scale, height: rect.height * scale))
+        return renderer.image { ctx in
+            ctx.cgContext.setFillColor(UIColor.white.cgColor); ctx.cgContext.fill(CGRect(origin: .zero, size: renderer.format.bounds.size))
+            ctx.cgContext.translateBy(x: 0, y: rect.height * scale); ctx.cgContext.scaleBy(x: scale, y: -scale); ctx.cgContext.drawPDFPage(page)
+        }
+    }
+
+    static func fileExtension(for data: Data) -> String {
+        guard data.count > 4 else { return "jpg" }
+        if data[0] == 0x25 && data[1] == 0x50 { return "pdf" }
+        if data[0] == 0x89 && data[1] == 0x50 { return "png" }
+        return "jpg"
+    }
+
     private func saveDoc() {
         // PoA docs trigger Didit verification automatically
         if docType == .proofOfAddress, let data = capturedImage {
@@ -407,7 +425,8 @@ struct QuickAddSheet: View {
         let imageData = capturedImage
         var paths: [String] = []
         if let data = imageData {
-            let filename = "\(checkId)_\(docType.rawValue.prefix(10).replacingOccurrences(of: " ", with: "_"))_\(UUID().uuidString.prefix(6)).jpg"
+            let ext = Self.fileExtension(for: data)
+            let filename = "\(checkId)_\(docType.rawValue.prefix(10).replacingOccurrences(of: " ", with: "_"))_\(UUID().uuidString.prefix(6)).\(ext)"
             let url = vm.imagesDir.appendingPathComponent(filename)
             try? data.write(to: url)
             paths.append(filename)
@@ -428,16 +447,21 @@ struct QuickAddSheet: View {
             vm.addDocument(to: checkId, document: doc)
         }
 
-        // Background OCR enrichment — don't block UI
-        if let data = imageData, docType != .other {
+        // Background OCR enrichment with progress pill
+        if let data = imageData {
             let docId = doc.id
             let cid = checkId
             let dt = docType.displayName
+            let activityId = SyncActivityMonitor.shared.begin("Reading \(dt)...", type: .sync)
             Task {
-                if let extraction = try? await ClaudeService.shared.extractMaritimeDocument(imageData: data, docType: dt) {
+                do {
+                    let extraction = try await ClaudeService.shared.extractMaritimeDocument(imageData: data, docType: dt)
                     await MainActor.run {
                         vm.enrichDocumentWithOCR(checkId: cid, documentId: docId, extraction: extraction)
                     }
+                    SyncActivityMonitor.shared.complete(activityId, success: true)
+                } catch {
+                    SyncActivityMonitor.shared.complete(activityId, success: false)
                 }
             }
         }
@@ -448,7 +472,8 @@ struct QuickAddSheet: View {
     private func saveSEAWithExtraction(_ imageData: Data) async {
         isSaving = true; saveError = nil
         // Save the document first
-        let filename = "\(checkId)_SEA_\(UUID().uuidString.prefix(6)).jpg"
+        let ext = Self.fileExtension(for: imageData)
+        let filename = "\(checkId)_SEA_\(UUID().uuidString.prefix(6)).\(ext)"
         let url = vm.imagesDir.appendingPathComponent(filename)
         try? imageData.write(to: url)
         let vesselId = vm.checks.first(where: { $0.id == checkId })?.vesselId

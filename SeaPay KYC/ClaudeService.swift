@@ -256,6 +256,7 @@ actor ClaudeService {
         var certificateGrade: String?
         var restrictions: String?
         var notes: String?
+        var suggestedDocType: String?
     }
 
     func extractMaritimeDocument(imageData: Data, docType: String) async throws -> DocExtraction {
@@ -285,7 +286,8 @@ actor ClaudeService {
           "flagState": "flag state if this is a flag endorsement or COC",
           "certificateGrade": "grade or level (e.g. Class I, II, III, Unlimited)",
           "restrictions": "any limitations or restrictions noted",
-          "notes": "any other important information (training center, test result, medical restrictions)"
+          "notes": "any other important information (training center, test result, medical restrictions)",
+          "suggestedDocType": "the most likely document type from: Passport, Seaman's Book, Medical Certificate (ENG1), Medical (PEME), Yellow Fever Vaccination, Basic Safety Training (STCW A-VI/1), Security Awareness, Seafarer Employment Agreement, Drug & Alcohol Test, COC — Deck Officer, COC — Engineer Officer, GMDSS Radio Operator, ECDIS Type-Specific Training, Bridge Resource Management, Engine Room Resource Management, High Voltage Training, Flag State Endorsement, or null if unsure"
         }
         """
 
@@ -328,6 +330,103 @@ actor ClaudeService {
 
         guard let textData = text.data(using: .utf8) else { throw ClaudeError.invalidResponse }
         return try JSONDecoder().decode(DocExtraction.self, from: textData)
+    }
+
+    // MARK: - Smart Document Bundle Analysis (Magic Upload)
+
+    struct DocumentAnalysis: Codable {
+        var documents: [AnalyzedDocument]
+    }
+
+    struct AnalyzedDocument: Codable {
+        var documentType: String?
+        var documentNumber: String?
+        var issueDate: String?
+        var expiryDate: String?
+        var issuingAuthority: String?
+        var holderName: String?
+        var pageRange: String?
+        var notes: String?
+    }
+
+    /// Analyzes a document (PDF or image) and identifies one or more certificates/documents within it.
+    /// `context` should be "crew" or "vessel" to guide type matching.
+    func analyzeDocumentBundle(data: Data, context: String) async throws -> DocumentAnalysis {
+        guard !apiKey.isEmpty else { throw ClaudeError.noAPIKey }
+        await MainActor.run { APIUsageTracker.track(.claudeOCR) }
+        let base64 = data.base64EncodedString()
+        let mediaType = detectMediaType(data)
+        let isPDF = mediaType == "application/pdf"
+
+        let typeList = context == "vessel"
+            ? "Safety Management Certificate (SMC), ISM Document of Compliance, International Ship Security Certificate (ISSC), Cargo Ship Safety Equipment Certificate, Cargo Ship Safety Construction Certificate, Passenger Ship Safety Certificate, International Load Line Certificate, International Tonnage Certificate, Classification Certificate, IOPP Certificate, Sewage Certificate, Anti-Fouling Certificate, Ballast Water Certificate, Minimum Safe Manning Document, MLC Certificate, Civil Liability Certificate, Bunker CLC, Wreck Removal Certificate, Ship Radio Station Licence, LRIT Conformance Certificate, AIS Certificate, Other Vessel Certificate"
+            : "Passport, Seaman's Book, Medical Certificate (ENG1), Medical (PEME), Yellow Fever Vaccination, Basic Safety Training (STCW A-VI/1), Security Awareness, Seafarer Employment Agreement, Drug & Alcohol Test, COC — Deck Officer, COC — Engineer Officer, GMDSS Radio Operator, ECDIS Type-Specific Training, Bridge Resource Management, Engine Room Resource Management, High Voltage Training, Flag State Endorsement, Other Document"
+
+        let contentBlock: [String: Any] = isPDF
+            ? ["type": "document", "source": ["type": "base64", "media_type": "application/pdf", "data": base64]]
+            : ["type": "image", "source": ["type": "base64", "media_type": mediaType, "data": base64]]
+
+        let prompt = """
+        Analyze this maritime document. It may contain ONE or MULTIPLE certificates/documents (e.g. a multi-page PDF with several certs).
+
+        For EACH separate document/certificate found, extract its details.
+
+        Return ONLY a JSON object (no markdown):
+        {
+          "documents": [
+            {
+              "documentType": "closest match from: \(typeList)",
+              "documentNumber": "certificate or document number",
+              "issueDate": "YYYY-MM-DD or null",
+              "expiryDate": "YYYY-MM-DD or null",
+              "issuingAuthority": "issuing organization",
+              "holderName": "name of holder/vessel",
+              "pageRange": "page numbers (e.g. '1-2') or null for single-page",
+              "notes": "any other important details"
+            }
+          ]
+        }
+
+        If only one document is found, the array should have one element.
+        If the document type doesn't match any listed, use "Other Document" or "Other Vessel Certificate".
+        """
+
+        let body: [String: Any] = [
+            "model": "claude-sonnet-4-6",
+            "max_tokens": 4096,
+            "messages": [["role": "user", "content": [contentBlock, ["type": "text", "text": prompt]]]]
+        ]
+
+        let jsonData = try JSONSerialization.data(withJSONObject: body)
+        guard let url = URL(string: endpoint) else { throw ClaudeError.invalidResponse }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue(apiVersion, forHTTPHeaderField: "anthropic-version")
+        request.httpBody = jsonData
+        request.timeoutInterval = 90 // Multi-page PDFs need more time
+
+        let (respData, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            let body = String(data: respData, encoding: .utf8) ?? ""
+            throw ClaudeError.apiError((response as? HTTPURLResponse)?.statusCode ?? 0, body)
+        }
+
+        guard let json = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
+              let content = json["content"] as? [[String: Any]],
+              var text = content.first?["text"] as? String else {
+            throw ClaudeError.invalidResponse
+        }
+
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.hasPrefix("```json") { text = String(text.dropFirst(7)) }
+        if text.hasPrefix("```") { text = String(text.dropFirst(3)) }
+        if text.hasSuffix("```") { text = String(text.dropLast(3)) }
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let textData = text.data(using: .utf8) else { throw ClaudeError.invalidResponse }
+        return try JSONDecoder().decode(DocumentAnalysis.self, from: textData)
     }
 
     // MARK: - SEA Extraction
@@ -443,6 +542,76 @@ actor ClaudeService {
       "nextOfKinRelation": "relationship"
     }
     """
+
+    // MARK: - Maritime Requirements Advisory (Claude Fallback)
+
+    struct RequirementsAdvisory: Codable {
+        var crewDocuments: [String]?
+        var vesselDocuments: [String]?
+        var sources: [String]?
+        var notes: String?
+    }
+
+    func adviseMaritimeRequirements(flag: String, vesselType: String, gt: Double, loa: Double, context: String) async throws -> RequirementsAdvisory {
+        guard !apiKey.isEmpty else { throw ClaudeError.noAPIKey }
+        await MainActor.run { APIUsageTracker.track(.claudeOCR) }
+
+        let crewTypes = MaritimeDocType.allCases.map(\.rawValue).joined(separator: ", ")
+        let vesselTypes = VesselDocType.allCases.map(\.rawValue).joined(separator: ", ")
+
+        let prompt = """
+        You are a maritime compliance expert. A vessel has these specifications:
+        - Flag State: \(flag)
+        - Vessel Type: \(vesselType)
+        - Gross Tonnage: \(gt) GT
+        - Length Overall: \(loa)m
+        - Context: \(context)
+
+        Based on the flag state's maritime legislation and international conventions (SOLAS, MARPOL, STCW, MLC 2006, ISM Code, ISPS Code), list the required documents.
+
+        Return ONLY a JSON object:
+        {
+          "crewDocuments": ["list of required crew document types from: \(crewTypes)"],
+          "vesselDocuments": ["list of required vessel certificate types from: \(vesselTypes)"],
+          "sources": ["legislative references, e.g. 'STCW Convention', 'Flag State Circular 123'"],
+          "notes": "any important compliance notes"
+        }
+
+        Use exact document type names from the lists above. If unsure about a specific flag's requirements, use SOLAS/STCW baseline.
+        """
+
+        let body: [String: Any] = [
+            "model": "claude-sonnet-4-6", "max_tokens": 4096,
+            "messages": [["role": "user", "content": prompt]]
+        ]
+
+        let jsonData = try JSONSerialization.data(withJSONObject: body)
+        guard let url = URL(string: endpoint) else { throw ClaudeError.invalidResponse }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue(apiVersion, forHTTPHeaderField: "anthropic-version")
+        request.httpBody = jsonData; request.timeoutInterval = 60
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw ClaudeError.apiError((response as? HTTPURLResponse)?.statusCode ?? 0, String(data: data, encoding: .utf8) ?? "")
+        }
+
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let content = json["content"] as? [[String: Any]],
+              var text = content.first?["text"] as? String else { throw ClaudeError.invalidResponse }
+
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.hasPrefix("```json") { text = String(text.dropFirst(7)) }
+        if text.hasPrefix("```") { text = String(text.dropFirst(3)) }
+        if text.hasSuffix("```") { text = String(text.dropLast(3)) }
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let textData = text.data(using: .utf8) else { throw ClaudeError.invalidResponse }
+        return try JSONDecoder().decode(RequirementsAdvisory.self, from: textData)
+    }
 
     // MARK: - Face Crop from ID/Passport
 

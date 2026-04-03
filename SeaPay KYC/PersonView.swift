@@ -209,7 +209,7 @@ struct PersonConfigView: View {
     private func slot(_ title: String, data: Data?, cam: Binding<Bool>, file: Binding<Bool>, photo: Binding<PhotosPickerItem?>, required: Bool) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack { Text(title).font(Typo.meta).foregroundStyle(.secondary); if required { Text("*").foregroundStyle(Color.review) } }
-            if let data, let img = UIImage(data: data) {
+            if let data, let img = UIImage(data: data) ?? renderPDF(data) {
                 ZStack(alignment: .topTrailing) {
                     Image(uiImage: img).resizable().scaledToFit().frame(maxHeight: 120).frame(maxWidth: .infinity).clipShape(RoundedRectangle(cornerRadius: 10))
                     Menu {
@@ -244,5 +244,16 @@ struct PersonConfigView: View {
     private func loadFile(_ url: URL) -> Data? {
         if url.startAccessingSecurityScopedResource() { defer { url.stopAccessingSecurityScopedResource() }; return try? Data(contentsOf: url) }
         return try? Data(contentsOf: url)
+    }
+
+    private func renderPDF(_ data: Data?) -> UIImage? {
+        guard let data, data.count > 4, data[0] == 0x25, data[1] == 0x50 else { return nil }
+        guard let provider = CGDataProvider(data: data as CFData), let doc = CGPDFDocument(provider), let page = doc.page(at: 1) else { return nil }
+        let rect = page.getBoxRect(.mediaBox); let scale: CGFloat = 2.0
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: rect.width * scale, height: rect.height * scale))
+        return renderer.image { ctx in
+            ctx.cgContext.setFillColor(UIColor.white.cgColor); ctx.cgContext.fill(CGRect(origin: .zero, size: renderer.format.bounds.size))
+            ctx.cgContext.translateBy(x: 0, y: rect.height * scale); ctx.cgContext.scaleBy(x: scale, y: -scale); ctx.cgContext.drawPDFPage(page)
+        }
     }
 }

@@ -305,6 +305,25 @@ class KYCViewModel: ObservableObject {
     func updateVessel(_ vessel: Vessel) {
         guard let i = vessels.firstIndex(where: { $0.id == vessel.id }) else { return }
         vessels[i] = vessel; saveVessels()
+        refreshRequirementsForVessel(vesselId: vessel.id)
+        autoPushVessel(vesselId: vessel.id)
+    }
+
+    /// Recalculate required documents for all crew assigned to a vessel.
+    /// Only ADDS missing placeholders — never removes existing documents.
+    func refreshRequirementsForVessel(vesselId: String) {
+        var changed = false
+        for i in checks.indices where checks[i].vesselId == vesselId {
+            let required = requiredDocuments(for: checks[i])
+            let existing = Set((checks[i].documents ?? []).map(\.type))
+            var docs = checks[i].documents ?? []
+            for dt in required where !existing.contains(dt) {
+                docs.append(CrewDocument(type: dt))
+                changed = true
+            }
+            checks[i].documents = docs
+        }
+        if changed { saveChecks() }
     }
 
     func deleteVessel(id: String) {
@@ -379,6 +398,11 @@ class KYCViewModel: ObservableObject {
         checks[i].entityType = entityType; saveChecks()
     }
 
+    func updateOwnershipPercent(checkId: String, percent: Double) {
+        guard let i = checkIndex(checkId) else { return }
+        checks[i].ownershipPercent = percent; saveChecks()
+    }
+
     func deleteCheckById(_ checkId: String) {
         Haptics.warning()
         stopPolling(checkId: checkId)
@@ -425,7 +449,18 @@ class KYCViewModel: ObservableObject {
     func requiredDocuments(for check: KYCCheck) -> [MaritimeDocType] {
         if check.entityType != .seafarer { return FlagStateRequirements.requiredForEntity(check.entityType) }
         let vessel = check.vesselId.flatMap { vid in vessels.first { $0.id == vid } }
-        return FlagStateRequirements.required(flag: vessel?.flagState ?? "", vesselType: vessel?.vesselType, rank: check.crewRank)
+        let flag = vessel?.flagState ?? ""
+        let vt = vessel?.vesselType
+        let gt = vessel?.grossTonnageValue
+        let loa = vessel?.lengthOverallMetres
+
+        // Try knowledge base first (JSON rules)
+        if let result = KnowledgeBaseService.shared.crewRequirements(flag: flag, vesselType: vt, gt: gt, loa: loa, rank: check.crewRank) {
+            return result.docs
+        }
+
+        // Fallback to hardcoded FlagStateRequirements
+        return FlagStateRequirements.required(flag: flag, vesselType: vt, rank: check.crewRank)
     }
 
     struct PortfolioItem: Identifiable {
@@ -550,6 +585,17 @@ class KYCViewModel: ObservableObject {
         if let v = extraction.notes, !v.isEmpty { extras.append(v) }
         if !extras.isEmpty { docs[di].notes = extras.joined(separator: " · ") }
 
+        // Auto-match document type if currently .other and Claude suggests one
+        if docs[di].type == .other, let suggested = extraction.suggestedDocType, !suggested.isEmpty {
+            if let matched = MaritimeDocType.allCases.first(where: { $0.displayName.localizedCaseInsensitiveContains(suggested) || suggested.localizedCaseInsensitiveContains($0.displayName) }) {
+                docs[di].type = matched
+            } else {
+                // No exact match — store suggestion in notes for agent review
+                let note = "Suggested type: \(suggested)"
+                docs[di].notes = [docs[di].notes, note].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+            }
+        }
+
         checks[ci].documents = docs
 
         // Enrich the check itself from holder info
@@ -575,6 +621,76 @@ class KYCViewModel: ObservableObject {
         for dt in required where !existing.contains(dt) { docs.append(CrewDocument(type: dt)) }
         checks[i].documents = docs
         saveChecks()
+    }
+
+    /// Bulk-add documents from AI analysis (Magic Upload)
+    func addDocumentsFromAnalysis(checkId: String, analysis: ClaudeService.DocumentAnalysis, fileData: Data, filename: String) {
+        guard let ci = checkIndex(checkId) else { return }
+        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
+
+        for analyzed in analysis.documents {
+            // Match type
+            let docType: MaritimeDocType = {
+                if let suggested = analyzed.documentType {
+                    return MaritimeDocType.allCases.first(where: {
+                        $0.displayName.localizedCaseInsensitiveContains(suggested) ||
+                        suggested.localizedCaseInsensitiveContains($0.displayName)
+                    }) ?? .other
+                }
+                return .other
+            }()
+
+            let doc = CrewDocument(
+                type: docType,
+                imagePaths: [filename],
+                documentNumber: analyzed.documentNumber,
+                issueDate: analyzed.issueDate.flatMap { fmt.date(from: $0) },
+                expiryDate: analyzed.expiryDate.flatMap { fmt.date(from: $0) },
+                issuingAuthority: analyzed.issuingAuthority,
+                notes: analyzed.notes
+            )
+
+            var docs = checks[ci].documents ?? []
+            if let existing = docs.firstIndex(where: { $0.type == docType && $0.imagePaths.isEmpty }) {
+                docs[existing] = doc
+            } else { docs.append(doc) }
+            checks[ci].documents = docs
+        }
+        saveChecks()
+        if let vid = checks[ci].vesselId { autoPushVessel(vesselId: vid) }
+    }
+
+    /// Bulk-add vessel documents from AI analysis (Magic Upload)
+    func addVesselDocumentsFromAnalysis(vesselId: String, analysis: ClaudeService.DocumentAnalysis, filename: String) {
+        guard let vi = vessels.firstIndex(where: { $0.id == vesselId }) else { return }
+        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
+
+        for analyzed in analysis.documents {
+            let vdt: VesselDocType = {
+                if let suggested = analyzed.documentType {
+                    return VesselDocType.allCases.first(where: {
+                        $0.displayName.localizedCaseInsensitiveContains(suggested) ||
+                        suggested.localizedCaseInsensitiveContains($0.displayName)
+                    }) ?? .other
+                }
+                return .other
+            }()
+
+            let doc = CrewDocument(
+                vesselDocType: vdt,
+                imagePaths: [filename],
+                documentNumber: analyzed.documentNumber,
+                issueDate: analyzed.issueDate.flatMap { fmt.date(from: $0) },
+                expiryDate: analyzed.expiryDate.flatMap { fmt.date(from: $0) },
+                issuingAuthority: analyzed.issuingAuthority,
+                notes: analyzed.notes
+            )
+            var docs = vessels[vi].documents ?? []
+            docs.append(doc)
+            vessels[vi].documents = docs
+        }
+        saveVessels()
+        autoPushVessel(vesselId: vesselId)
     }
 
     func addDocument(to checkId: String, document: CrewDocument) {
@@ -710,9 +826,12 @@ class KYCViewModel: ObservableObject {
         guard let i = checkIndex(checkId) else { return }
         let filename = "\(checkId)_profile.jpg"
         try? imageData.write(to: imagesDir.appendingPathComponent(filename))
+        invalidateImageCache(filename: filename)
         checks[i].profilePhoto = filename; saveChecks()
         queueFileForSync(filename: filename, vesselId: checks[i].vesselId)
         if let vid = checks[i].vesselId { autoPushVessel(vesselId: vid) }
+        // Auto face-crop in background — replaces with cropped version if face found
+        Task { await extractAndSetFacePhoto(checkId: checkId, imageData: imageData) }
     }
 
     // MARK: - vCard Generation

@@ -20,6 +20,7 @@ struct PersonResultsView: View {
     @State private var notes = ""
     @State private var showContactEditor = false
     @State private var showProfileCam = false
+    @State private var showPhotoPicker = false
     @State private var profileData: Data?
     @State private var selProfilePhoto: PhotosPickerItem?
     @State private var showVCard = false
@@ -38,6 +39,10 @@ struct PersonResultsView: View {
     @State private var idResult: IDResult?
     @State private var amlResult: AMLResult?
     @State private var error: String?
+    @State private var showMagicUpload = false
+    @State private var magicUploadResults: ClaudeService.DocumentAnalysis?
+    @State private var magicUploadFilename: String?
+    @State private var magicUploadData: Data?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -47,6 +52,7 @@ struct PersonResultsView: View {
         .onAppear { loadResults(); notes = c.agentNotes ?? "" }
         .toolbar { toolbarMenu }
         .onChange(of: profileData) { _, d in if let d { vm.setProfilePhoto(checkId: checkId, imageData: d) } }
+        .photosPicker(isPresented: $showPhotoPicker, selection: $selProfilePhoto, matching: .images)
         .onChange(of: selProfilePhoto) { _, item in
             guard let item else { return }
             loadPhotoFromLibrary(item)
@@ -56,6 +62,23 @@ struct PersonResultsView: View {
             if let img = previewImage { ImagePreviewView(image: img, filename: previewName ?? "", imagesDir: vm.imagesDir) }
         }
         .sheet(isPresented: $showContactEditor) { ContactEditorSheet(vm: vm, checkId: checkId, check: c).presentationDetents([.large]) }
+        .sheet(isPresented: $showMagicUpload) {
+            FilePicker { url in
+                let data: Data?
+                if url.startAccessingSecurityScopedResource() {
+                    defer { url.stopAccessingSecurityScopedResource() }
+                    data = try? Data(contentsOf: url)
+                } else { data = try? Data(contentsOf: url) }
+                guard let data else { return }
+                magicUploadData = data
+                Task { await runMagicUpload(data: data) }
+            }
+        }
+        .sheet(isPresented: Binding(get: { magicUploadResults != nil }, set: { if !$0 { magicUploadResults = nil } })) {
+            if let results = magicUploadResults {
+                MagicUploadReviewSheet(analysis: results, onConfirm: { confirmMagicUpload() }, onDismiss: { magicUploadResults = nil })
+            }
+        }
         .sheet(isPresented: $showVCard) { if let url = vCardURL { ActivityView(items: [url]) } }
         .sheet(item: $pendingReview) { d in
             ReviewCeremonyView(personName: c.displayName, documentType: c.documentType?.replacingOccurrences(of: "_", with: " ").capitalized, amlStatus: c.amlStatus,
@@ -86,7 +109,7 @@ struct PersonResultsView: View {
             if !isCollaborator {
                 Menu {
                     Button { showProfileCam = true } label: { Label("Take Photo", systemImage: "camera") }
-                    PhotosPicker(selection: $selProfilePhoto, matching: .images) { Label("Choose from Library", systemImage: "photo") }
+                    Button { showPhotoPicker = true } label: { Label("Choose from Library", systemImage: "photo") }
                 } label: {
                     avatar(72)
                         .overlay(alignment: .bottomTrailing) {
@@ -119,6 +142,7 @@ struct PersonResultsView: View {
             if let p = c.phoneNumber, !p.isEmpty { actionCircle("phone.fill", "Call") { if let u = URL(string: "tel:\(p)") { UIApplication.shared.open(u) } } }
             if let e = c.emailAddress, !e.isEmpty { actionCircle("envelope.fill", "Email") { if let u = URL(string: "mailto:\(e)") { UIApplication.shared.open(u) } } }
             if c.phoneNumber != nil || c.emailAddress != nil { actionCircle("person.crop.rectangle", "vCard") { exportVCard() } }
+            if !isCollaborator { actionCircle("arrow.up.doc.fill", "Upload") { showMagicUpload = true } }
             NavigationLink { DocumentPortfolioView(vm: vm, checkId: checkId) } label: { actionLabel("folder.fill", "Docs") }
             NavigationLink { PDFReportView(vm: vm, checkId: checkId) } label: { actionLabel("doc.text.fill", "Report") }
         }
@@ -363,7 +387,7 @@ struct PersonResultsView: View {
             Menu {
                 if !isCollaborator {
                     Button { showProfileCam = true } label: { Label("Take Photo", systemImage: "camera") }
-                    PhotosPicker(selection: $selProfilePhoto, matching: .images) { Label("Choose from Library", systemImage: "photo") }
+                    Button { showPhotoPicker = true } label: { Label("Choose from Library", systemImage: "photo") }
                     Divider()
                     Button { showContactEditor = true } label: { Label("Edit Details", systemImage: "pencil") }
                     Button { editedName = c.extractedName ?? c.customerName; showAMLRerun = true } label: { Label("Re-run AML", systemImage: "arrow.counterclockwise") }
@@ -388,11 +412,54 @@ struct PersonResultsView: View {
     // MARK: - Actions
 
     private func loadPhotoFromLibrary(_ item: PhotosPickerItem) {
-        Task { @MainActor in
-            if let photo = try? await item.loadTransferable(type: ProfileImageTransfer.self) {
-                vm.setProfilePhoto(checkId: checkId, imageData: photo.data)
+        Task {
+            do {
+                if let photo = try await item.loadTransferable(type: ProfileImageTransfer.self) {
+                    await MainActor.run { vm.setProfilePhoto(checkId: checkId, imageData: photo.data) }
+                }
+            } catch {
+                print("Profile photo load failed: \(error)")
             }
+            // Reset so picking the same photo again triggers onChange
+            await MainActor.run { selProfilePhoto = nil }
         }
+    }
+
+    private func runMagicUpload(data: Data) async {
+        let activityId = SyncActivityMonitor.shared.begin("Analyzing document...", type: .sync)
+        do {
+            let analysis = try await ClaudeService.shared.analyzeDocumentBundle(data: data, context: "crew")
+            await MainActor.run {
+                if analysis.documents.count == 1 {
+                    // Single doc — auto-save without review
+                    saveMagicUploadDirect(data: data, analysis: analysis)
+                    SyncActivityMonitor.shared.complete(activityId, success: true)
+                } else if analysis.documents.count > 1 {
+                    // Multiple docs — show review sheet
+                    magicUploadResults = analysis
+                    SyncActivityMonitor.shared.complete(activityId, success: true)
+                } else {
+                    SyncActivityMonitor.shared.complete(activityId, success: false)
+                }
+            }
+        } catch {
+            SyncActivityMonitor.shared.complete(activityId, success: false)
+        }
+    }
+
+    private func saveMagicUploadDirect(data: Data, analysis: ClaudeService.DocumentAnalysis) {
+        let ext = data.count > 4 && data[0] == 0x25 && data[1] == 0x50 ? "pdf" : "jpg"
+        let filename = "\(checkId)_upload_\(UUID().uuidString.prefix(6)).\(ext)"
+        try? data.write(to: vm.imagesDir.appendingPathComponent(filename))
+        vm.queueFileForSync(filename: filename, vesselId: c.vesselId)
+        vm.addDocumentsFromAnalysis(checkId: checkId, analysis: analysis, fileData: data, filename: filename)
+        Haptics.success()
+    }
+
+    private func confirmMagicUpload() {
+        guard let data = magicUploadData, let analysis = magicUploadResults else { return }
+        saveMagicUploadDirect(data: data, analysis: analysis)
+        magicUploadResults = nil; magicUploadData = nil
     }
 
     private func exportVCard() {
@@ -432,18 +499,82 @@ struct PersonResultsView: View {
 
 import UniformTypeIdentifiers
 
+// MARK: - Magic Upload Review Sheet
+
+struct MagicUploadReviewSheet: View {
+    let analysis: ClaudeService.DocumentAnalysis
+    let onConfirm: () -> Void
+    let onDismiss: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(spacing: 12) {
+                        Text("\(analysis.documents.count) documents found").font(Typo.context)
+                            .padding(.top, 16)
+
+                        ForEach(Array(analysis.documents.enumerated()), id: \.offset) { i, doc in
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Image(systemName: "doc.text").font(.system(size: 14)).foregroundStyle(.secondary)
+                                    Text(doc.documentType ?? "Unknown").font(Typo.body).fontWeight(.medium)
+                                    Spacer()
+                                    if let pages = doc.pageRange { Text("p.\(pages)").font(Typo.meta).foregroundStyle(.tertiary) }
+                                }
+                                if let num = doc.documentNumber { DataRow(label: "Number", value: num) }
+                                if let exp = doc.expiryDate { DataRow(label: "Expires", value: exp) }
+                                if let auth = doc.issuingAuthority { DataRow(label: "Issuer", value: auth) }
+                                if let holder = doc.holderName { DataRow(label: "Holder", value: holder) }
+                            }
+                            .padding(14)
+                            .background(Color.surfaceMuted.opacity(0.3))
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+
+                VStack(spacing: 0) {
+                    Divider()
+                    Button { onConfirm(); dismiss() } label: { Text("Add All Documents") }
+                        .buttonStyle(PrimaryButtonStyle())
+                        .padding(.horizontal, 24).padding(.vertical, 10)
+                }
+                .background(.ultraThinMaterial)
+            }
+            .background(Color.surface.ignoresSafeArea())
+            .navigationTitle("Documents Found")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { onDismiss(); dismiss() } } }
+        }
+    }
+}
+
 private struct ProfileImageTransfer: Transferable {
     let data: Data
 
     static var transferRepresentation: some TransferRepresentation {
-        // .image is the abstract supertype — PhotosPicker always provides this
-        DataRepresentation(importedContentType: .image) { data in
-            // Convert whatever format (HEIC, PNG, JPEG, TIFF) to JPEG
-            guard let image = UIImage(data: data) else {
-                return ProfileImageTransfer(data: data)
+        // Register concrete types first — PhotosPicker exports as these, not abstract .image
+        DataRepresentation(importedContentType: .jpeg) { data in
+            ProfileImageTransfer(data: data)
+        }
+        DataRepresentation(importedContentType: .png) { data in
+            ProfileImageTransfer(data: data)
+        }
+        DataRepresentation(importedContentType: .heic) { data in
+            if let img = UIImage(data: data), let jpeg = img.jpegData(compressionQuality: 0.85) {
+                return ProfileImageTransfer(data: jpeg)
             }
-            let jpeg = image.jpegData(compressionQuality: 0.85) ?? data
-            return ProfileImageTransfer(data: jpeg)
+            return ProfileImageTransfer(data: data)
+        }
+        // Fallback: abstract .image supertype
+        DataRepresentation(importedContentType: .image) { data in
+            if let img = UIImage(data: data), let jpeg = img.jpegData(compressionQuality: 0.85) {
+                return ProfileImageTransfer(data: jpeg)
+            }
+            return ProfileImageTransfer(data: data)
         }
     }
 }

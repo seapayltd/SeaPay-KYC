@@ -1,0 +1,154 @@
+{
+  "version": 1,
+  "lastUpdated": "2026-04-03",
+  "crewRules": [
+    {
+      "flag": "*", "vesselType": null, "rankCategory": null,
+      "required": ["passport", "seamansBook", "medicalENG1", "yellowFever", "stcwBST", "securityAwareness"],
+      "source": "STCW Convention / MLC 2006"
+    },
+    {
+      "flag": "*", "rankCategory": "officerDeck",
+      "required": ["cocDeck", "gmdss", "ecdis", "brm", "flagEndorsement"],
+      "source": "STCW A-II"
+    },
+    {
+      "flag": "*", "rankCategory": "officerEngine",
+      "required": ["cocEngine", "erm", "highVoltage", "flagEndorsement"],
+      "source": "STCW A-III"
+    },
+    {
+      "flag": "*", "rankCategory": "ratingDeck",
+      "required": ["abDeck", "survivalCraft"],
+      "source": "STCW A-II/5"
+    },
+    {
+      "flag": "*", "rankCategory": "ratingEngine",
+      "required": ["abEngine", "survivalCraft"],
+      "source": "STCW A-III/5"
+    },
+    {
+      "flag": "*", "rankCategory": "hospitality",
+      "required": ["medicalFirstAid"],
+      "source": "STCW A-VI/4"
+    },
+    {
+      "flag": "MHL", "required": ["flagEndorsement", "drugAlcoholTest"],
+      "source": "MI-108 Maritime Labour"
+    },
+    {
+      "flag": "CYM", "required": ["flagEndorsement", "medicalENG1", "drugAlcoholTest"],
+      "source": "Cayman Islands Shipping Registry"
+    },
+    {
+      "flag": "GBR", "required": ["flagEndorsement", "medicalENG1"],
+      "source": "MCA MGN 174"
+    },
+    {
+      "flag": "MLT", "required": ["flagEndorsement", "drugAlcoholTest"],
+      "source": "Malta Transport S.L. 234.51"
+    },
+    {
+      "flag": "PAN", "required": ["flagEndorsement", "seamansBook", "drugAlcoholTest"],
+      "source": "Panama Maritime Authority"
+    },
+    {
+      "flag": "*", "vesselType": "megayachtCharter",
+      "required": ["stcwLargeYacht", "pyaQualification", "guestSafetyBriefing", "powerboatLevel2", "foodSafetyCert"],
+      "source": "PYA Standards / ISM Code"
+    },
+    {
+      "flag": "*", "vesselType": "megayachtPrivate",
+      "required": ["stcwLargeYacht", "guestSafetyBriefing", "powerboatLevel2"],
+      "source": "STCW A-VI/1-4"
+    },
+    {
+      "flag": "GBR", "vesselType": "megayachtCharter", "rankCategory": "officerDeck",
+      "required": ["helmCert", "ryaYachtmaster", "ssoCertificate", "mcaSeafarerDoc"],
+      "source": "MCA LY3 / MGN 280"
+    },
+    {
+      "flag": "CYM", "vesselType": "megayachtCharter", "rankCategory": "officerDeck",
+      "required": ["helmCert", "ryaYachtmaster", "ssoCertificate"],
+      "source": "Cayman REG Yacht Code"
+    },
+    {
+      "flag": "*", "vesselType": "tankerOil",
+      "required": ["tankerFamOil", "tankerAdvOil"],
+      "source": "STCW A-V/1"
+    },
+    {
+      "flag": "*", "vesselType": "tankerChemical",
+      "required": ["tankerFamChemical", "tankerAdvChemical"],
+      "source": "STCW A-V/1"
+    },
+    {
+      "flag": "*", "vesselType": "tankerGas",
+      "required": ["tankerFamGas", "tankerAdvGas"],
+      "source": "STCW A-V/1"
+    }
+  ],
+  "vesselRules": [
+    {
+      "flag": "*",
+      "required": ["certificateOfRegistry", "classCertificate", "minimumSafeManning", "insuranceCertificate", "hmInsurance", "annualSurvey"],
+      "source": "SOLAS / UNCLOS"
+    },
+    {
+      "flag": "*", "minGT": 150, "minLOA": 24,
+      "required": ["loadLine", "internationalTonnage"],
+      "source": "LL Convention 1966"
+    },
+    {
+      "flag": "*", "minGT": 300,
+      "required": ["radioSafety", "shipRadioLicence", "epirbRegistration"],
+      "source": "SOLAS Ch. IV"
+    },
+    {
+      "flag": "*", "minGT": 400,
+      "required": ["ispp", "iapp", "ballastWater"],
+      "source": "MARPOL Annex IV, VI / BWM Convention"
+    },
+    {
+      "flag": "*", "minGT": 500,
+      "required": ["smc", "ismDOC", "issc", "csr", "cargoShipSafetyConstruction", "cargoShipSafetyEquipment", "mlcCertificate", "dmlc", "civilLiability", "wreckRemoval"],
+      "source": "SOLAS Ch. IX / ISM Code / ISPS Code / MLC 2006"
+    },
+    {
+      "flag": "GBR", "vesselType": "megayachtCharter", "minLOA": 24, "yearBuiltAfter": 2017,
+      "required": ["largeYachtCode", "smc", "ismDOC", "stabilityBooklet", "loadLine", "mlcCertificate"],
+      "source": "MCA LY3 Code"
+    },
+    {
+      "flag": "GBR", "vesselType": "megayachtCharter", "maxLOA": 24,
+      "required": ["mcaSCVCode", "shortRangeSafety"],
+      "source": "MCA SCV Code"
+    },
+    {
+      "flag": "CYM", "vesselType": "megayachtCharter",
+      "required": ["caymanREG", "smc", "ismDOC", "warRisk", "annualSurvey"],
+      "source": "Cayman Islands REG Yacht Code"
+    },
+    {
+      "flag": "MLT", "vesselType": "megayachtCharter", "minLOA": 24,
+      "required": ["maltaSYC", "smc", "ismDOC", "stabilityBooklet", "loadLine"],
+      "source": "Malta SYC Code S.L. 234.38"
+    },
+    {
+      "flag": "MLT", "vesselType": "megayachtCharter", "maxLOA": 24,
+      "required": ["maltaSCV", "smc", "ismDOC"],
+      "source": "Malta SCV Rules S.L. 234.36"
+    },
+    {
+      "flag": "MHL", "vesselType": "megayachtCharter",
+      "required": ["marshallIslandsMI108", "annualSurvey", "specialSurvey"],
+      "source": "MI-108 Rev. 22/17"
+    },
+    {
+      "flag": "MHL", "minGT": 500,
+      "required": ["smc", "ismDOC", "warRisk"],
+      "source": "Marshall Islands Maritime Administrator"
+    }
+  ],
+  "customRules": []
+}

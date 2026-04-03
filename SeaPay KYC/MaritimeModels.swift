@@ -719,6 +719,42 @@ struct CrewDocument: Identifiable, Codable, Hashable {
     }
 }
 
+// MARK: - Knowledge Base Rules
+
+struct RequirementRule: Codable, Identifiable {
+    var id: String = UUID().uuidString
+    var flag: String             // ISO-3 or "*" for universal
+    var vesselType: String?      // VesselType.rawValue or nil for all
+    var minGT: Double?
+    var maxGT: Double?
+    var minLOA: Double?
+    var maxLOA: Double?
+    var rankCategory: String?    // "officerDeck", "officerEngine", "ratingDeck", etc.
+    var yearBuiltAfter: Int?
+    var required: [String]       // MaritimeDocType or VesselDocType rawValues
+    var source: String?          // Legislative reference
+
+    func matches(flag f: String, vesselType vt: String?, gt: Double?, loa: Double?, rankCat: String? = nil, yearBuilt: Int? = nil) -> Bool {
+        if self.flag != "*" && self.flag.lowercased() != f.lowercased() { return false }
+        if let rvt = self.vesselType, rvt != "*", let vt, rvt.lowercased() != vt.lowercased() { return false }
+        if let min = self.minGT, let g = gt, g < min { return false }
+        if let max = self.maxGT, let g = gt, g > max { return false }
+        if let min = self.minLOA, let l = loa, l < min { return false }
+        if let max = self.maxLOA, let l = loa, l > max { return false }
+        if let rc = self.rankCategory, let rk = rankCat, rc.lowercased() != rk.lowercased() { return false }
+        if let yba = self.yearBuiltAfter, let yb = yearBuilt, yb <= yba { return false }
+        return true
+    }
+}
+
+struct MaritimeRulesDB: Codable {
+    var version: Int
+    var lastUpdated: String
+    var crewRules: [RequirementRule]
+    var vesselRules: [RequirementRule]
+    var customRules: [RequirementRule]
+}
+
 // MARK: - Flag State Requirements
 
 enum FlagStateRequirements {

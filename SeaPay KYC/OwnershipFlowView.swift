@@ -359,29 +359,64 @@ struct OwnershipFlowView: View {
             if let cid = p.checkId, let check = vm.checks.first(where: { $0.id == cid }) {
                 StatusBadge(status: check.status)
             } else if p.role != .corporateShareholder {
-                // Verify or invite — for any natural person
-                Menu {
-                    Button {
-                        let et: KYCCheck.EntityType = isUBO ? .ubo : p.role == .director ? .directorOfficer : p.role == .trustee ? .trustee : p.role == .settlor ? .settlor : p.role == .protector ? .protector : p.role == .beneficiary ? .beneficiary : .owner
-                        let check = vm.createCheck(customerName: p.name, entityType: et, vesselId: vesselId, ownershipPercent: p.ownershipPercent > 0 ? p.ownershipPercent : nil)
-                        person.wrappedValue.checkId = check.id
-                        selectedCheckId = check.id // programmatic nav not used — user taps NavigationLink
-                    } label: { Label("Scan Passport", systemImage: "camera.viewfinder") }
+                // Check if this person already has a verification under a different role
+                let existingCheck = vm.checks.first(where: {
+                    $0.vesselId == vesselId &&
+                    ($0.customerName.localizedCaseInsensitiveContains(p.name) ||
+                     ($0.extractedName ?? "").localizedCaseInsensitiveContains(p.name) ||
+                     p.name.localizedCaseInsensitiveContains($0.customerName))
+                })
 
-                    if AppConfiguration.hasWorkflow && vm.isOnline {
+                if let existing = existingCheck {
+                    // Same person already verified — link instead of duplicate
+                    Menu {
+                        Button {
+                            person.wrappedValue.checkId = existing.id
+                            // Update entity type to reflect additional role
+                            let et: KYCCheck.EntityType = isUBO ? .ubo : p.role == .director ? .directorOfficer : p.role == .trustee ? .trustee : p.role == .settlor ? .settlor : p.role == .protector ? .protector : p.role == .beneficiary ? .beneficiary : .owner
+                            vm.updateEntityType(checkId: existing.id, entityType: et)
+                            if p.ownershipPercent > 0 { vm.updateOwnershipPercent(checkId: existing.id, percent: p.ownershipPercent) }
+                        } label: { Label("Link Existing Verification", systemImage: "link") }
+
                         Button {
                             let et: KYCCheck.EntityType = isUBO ? .ubo : p.role == .director ? .directorOfficer : p.role == .trustee ? .trustee : p.role == .settlor ? .settlor : p.role == .protector ? .protector : p.role == .beneficiary ? .beneficiary : .owner
                             let check = vm.createCheck(customerName: p.name, entityType: et, vesselId: vesselId, ownershipPercent: p.ownershipPercent > 0 ? p.ownershipPercent : nil)
                             person.wrappedValue.checkId = check.id
-                            inviteCheck = check
-                        } label: { Label("Send Invite", systemImage: "paperplane") }
-                    }
-                } label: {
-                    Text("Verify").font(Typo.meta).fontWeight(.medium)
-                        .padding(.horizontal, 12).padding(.vertical, 6)
-                        .background(isUBO ? Color.primary : Color.surfaceMuted)
-                        .foregroundStyle(isUBO ? Color.surface : .primary)
+                        } label: { Label("New Verification", systemImage: "camera.viewfinder") }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.circle").font(.system(size: 11))
+                            Text("Already Verified").font(Typo.meta).fontWeight(.medium)
+                        }
+                        .foregroundStyle(Color.clear_)
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(Color.clear_.opacity(0.08))
                         .clipShape(Capsule())
+                    }
+                } else {
+                    // No existing check — normal verify flow
+                    Menu {
+                        Button {
+                            let et: KYCCheck.EntityType = isUBO ? .ubo : p.role == .director ? .directorOfficer : p.role == .trustee ? .trustee : p.role == .settlor ? .settlor : p.role == .protector ? .protector : p.role == .beneficiary ? .beneficiary : .owner
+                            let check = vm.createCheck(customerName: p.name, entityType: et, vesselId: vesselId, ownershipPercent: p.ownershipPercent > 0 ? p.ownershipPercent : nil)
+                            person.wrappedValue.checkId = check.id
+                        } label: { Label("Scan Passport", systemImage: "camera.viewfinder") }
+
+                        if AppConfiguration.hasWorkflow && vm.isOnline {
+                            Button {
+                                let et: KYCCheck.EntityType = isUBO ? .ubo : p.role == .director ? .directorOfficer : p.role == .trustee ? .trustee : p.role == .settlor ? .settlor : p.role == .protector ? .protector : p.role == .beneficiary ? .beneficiary : .owner
+                                let check = vm.createCheck(customerName: p.name, entityType: et, vesselId: vesselId, ownershipPercent: p.ownershipPercent > 0 ? p.ownershipPercent : nil)
+                                person.wrappedValue.checkId = check.id
+                                inviteCheck = check
+                            } label: { Label("Send Invite", systemImage: "paperplane") }
+                        }
+                    } label: {
+                        Text("Verify").font(Typo.meta).fontWeight(.medium)
+                            .padding(.horizontal, 12).padding(.vertical, 6)
+                            .background(isUBO ? Color.primary : Color.surfaceMuted)
+                            .foregroundStyle(isUBO ? Color.surface : .primary)
+                            .clipShape(Capsule())
+                    }
                 }
             }
         }
@@ -509,7 +544,7 @@ struct OwnershipFlowView: View {
                     for d in dirs {
                         let name = d["name"] as? String ?? ""
                         guard !name.isEmpty else { continue }
-                        if !persons.contains(where: { $0.name.lowercased() == name.lowercased() && $0.role == .director }) {
+                        if !persons.contains(where: { $0.name.lowercased() == name.lowercased() }) {
                             persons.append(OwnershipPerson(name: name, ownershipPercent: 0, role: .director))
                         }
                     }
