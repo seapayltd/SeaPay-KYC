@@ -25,6 +25,7 @@ struct HomeView: View {
     @State private var searchText = ""
     @State private var tab = UserDefaults.standard.bool(forKey: "isCollaborator") ? 2 : 0
     @State private var allFilter = 0
+    @State private var sortOption = 0  // 0=Name, 1=Expiry, 2=Status
     @State private var previousTab = 0
     private var isCollaborator: Bool { UserDefaults.standard.bool(forKey: "isCollaborator") && AppConfiguration.apiKey.isEmpty }
 
@@ -337,6 +338,9 @@ struct HomeView: View {
     private var vesselsList: some View {
         ScrollView {
             LazyVStack(spacing: 16) {
+                // Compliance summary (only when there are issues)
+                complianceSummaryCard
+
                 ForEach(filteredVessels) { vessel in
                     let seafarers = vm.seafarersForVessel(vessel.id)
                     let compliance = vm.complianceChecksForVessel(vessel.id)
@@ -407,23 +411,59 @@ struct HomeView: View {
         .frame(maxWidth: .infinity)
     }
 
+    // MARK: - Compliance Summary
+
+    @ViewBuilder
+    private var complianceSummaryCard: some View {
+        let flagged = vm.checks.filter { $0.status == .failed }.count
+        let review = vm.checks.filter { $0.status == .requiresReview }.count
+        let expiring = vm.allExpiringDocuments.count
+        if flagged > 0 || review > 0 || expiring > 0 {
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle").font(.system(size: 14)).foregroundStyle(Color.review)
+                Text([
+                    flagged > 0 ? "\(flagged) flagged" : nil,
+                    review > 0 ? "\(review) review" : nil,
+                    expiring > 0 ? "\(expiring) expiring" : nil
+                ].compactMap { $0 }.joined(separator: " · "))
+                .font(Typo.meta).foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            .background(Color.review.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+    }
+
     // MARK: - All Checks List
 
     private var allChecksList: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                // Filter chips
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(Array(filterOptions.enumerated()), id: \.offset) { i, title in
-                            Button { withAnimation(.smooth(duration: 0.2)) { allFilter = i } } label: {
-                                FilterChip(title: title, isSelected: allFilter == i)
+                // Filter chips + sort
+                HStack(spacing: 0) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(Array(filterOptions.enumerated()), id: \.offset) { i, title in
+                                Button { withAnimation(.smooth(duration: 0.2)) { allFilter = i } } label: {
+                                    FilterChip(title: title, isSelected: allFilter == i)
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
+                        .padding(.horizontal, 16)
                     }
-                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    Menu {
+                        Button { sortOption = 0 } label: { Label("Name", systemImage: sortOption == 0 ? "checkmark" : "") }
+                        Button { sortOption = 1 } label: { Label("Expiry", systemImage: sortOption == 1 ? "checkmark" : "") }
+                        Button { sortOption = 2 } label: { Label("Status", systemImage: sortOption == 2 ? "checkmark" : "") }
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down").font(.system(size: 13)).foregroundStyle(.secondary)
+                            .frame(width: 36, height: 36)
+                    }
+                    .padding(.trailing, 12)
                 }
+                .padding(.vertical, 6)
 
                 if filteredChecks.isEmpty {
                     VStack(spacing: 14) {
@@ -488,16 +528,34 @@ struct HomeView: View {
         case 3: base = vm.checks.filter { $0.status == .pending || $0.status == .inProgress }
         default: base = vm.checks
         }
-        guard !searchText.isEmpty else { return base }
-        return base.filter { check in
-            check.customerName.localizedCaseInsensitiveContains(searchText) ||
-            (check.documentNumber ?? "").localizedCaseInsensitiveContains(searchText) ||
-            (check.crewRank?.rawValue ?? "").localizedCaseInsensitiveContains(searchText) ||
-            (check.nationality ?? "").localizedCaseInsensitiveContains(searchText) ||
-            (check.phoneNumber ?? "").localizedCaseInsensitiveContains(searchText) ||
-            (check.emailAddress ?? "").localizedCaseInsensitiveContains(searchText) ||
-            (check.vesselId.flatMap { vid in vm.vessels.first(where: { $0.id == vid })?.name } ?? "").localizedCaseInsensitiveContains(searchText)
+        var result = base
+        if !searchText.isEmpty {
+            result = result.filter { check in
+                check.customerName.localizedCaseInsensitiveContains(searchText) ||
+                (check.documentNumber ?? "").localizedCaseInsensitiveContains(searchText) ||
+                (check.crewRank?.rawValue ?? "").localizedCaseInsensitiveContains(searchText) ||
+                (check.nationality ?? "").localizedCaseInsensitiveContains(searchText) ||
+                (check.phoneNumber ?? "").localizedCaseInsensitiveContains(searchText) ||
+                (check.emailAddress ?? "").localizedCaseInsensitiveContains(searchText) ||
+                (check.vesselId.flatMap { vid in vm.vessels.first(where: { $0.id == vid })?.name } ?? "").localizedCaseInsensitiveContains(searchText)
+            }
         }
+        // Sort
+        switch sortOption {
+        case 1: // Expiry (soonest first)
+            let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
+            result.sort { a, b in
+                let da = a.expiryDate.flatMap { fmt.date(from: $0) } ?? .distantFuture
+                let db = b.expiryDate.flatMap { fmt.date(from: $0) } ?? .distantFuture
+                return da < db
+            }
+        case 2: // Status (flagged first)
+            let order: [KYCCheck.CheckStatus: Int] = [.failed: 0, .requiresReview: 1, .pending: 2, .inProgress: 3, .incomplete: 4, .passed: 5]
+            result.sort { (order[$0.status] ?? 9) < (order[$1.status] ?? 9) }
+        default: // Name A-Z
+            result.sort { $0.displayName.localizedCompare($1.displayName) == .orderedAscending }
+        }
+        return result
     }
 
     private var groupedChecks: [(String, [KYCCheck])] {

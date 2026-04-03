@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UserNotifications
 
 enum AppMode: String { case agent, collaborator, verifying, owner }
 
@@ -129,6 +130,7 @@ struct SeaPay_KYCApp: App {
             }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .background && BiometricService.isEnabled { isLocked = true }
+                if phase == .active { updateBadgeCount() }
             }
             .onAppear {
                 // Register font + load data after first frame (splash already visible)
@@ -195,6 +197,11 @@ struct SeaPay_KYCApp: App {
             }
         }
         #endif
+    }
+
+    private func updateBadgeCount() {
+        let count = vm.checks.filter { $0.status == .failed || $0.status == .requiresReview }.count
+        UNUserNotificationCenter.current().setBadgeCount(count)
     }
 }
 
