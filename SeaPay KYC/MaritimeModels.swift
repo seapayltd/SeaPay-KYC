@@ -31,6 +31,7 @@ enum MaritimeDocCategory: String, Codable, CaseIterable, Identifiable {
     case tanker = "Tanker"
     case rating = "Rating"
     case megayacht = "Megayacht"
+    case additional = "Additional"
 
     var id: String { rawValue }
 }
@@ -112,11 +113,11 @@ enum MaritimeDocType: String, Codable, CaseIterable, Identifiable, Hashable {
     case partnershipAgreement = "Partnership Agreement"
     case directorRegistry = "Director Registry"
 
-    // Other
+    // Additional (non-standard certificates identified by AI)
     case other = "Other Document"
 
     var id: String { rawValue }
-    var displayName: String { rawValue }
+    var displayName: String { self == .other ? "Additional Certificate" : rawValue }
 
     var category: MaritimeDocCategory {
         switch self {
@@ -142,7 +143,7 @@ enum MaritimeDocType: String, Codable, CaseIterable, Identifiable, Hashable {
              .certificateOfGoodStanding, .trustDeed, .partnershipAgreement, .directorRegistry:
             return .universal
         case .other:
-            return .universal
+            return .additional
         }
     }
 
@@ -472,7 +473,7 @@ enum VesselDocType: String, Codable, CaseIterable, Identifiable, Hashable {
     case other = "Other Vessel Certificate"
 
     var id: String { rawValue }
-    var displayName: String { rawValue }
+    var displayName: String { self == .other ? "Additional Vessel Certificate" : rawValue }
 
     var category: VesselDocCategory {
         switch self {
@@ -646,6 +647,7 @@ struct CrewDocument: Identifiable, Codable, Hashable {
     let id: String
     var type: MaritimeDocType
     var vesselDocType: VesselDocType?
+    var customName: String?    // AI-derived name for additional/unclassified certificates
     var imagePaths: [String]
     var documentNumber: String?
     var issueDate: Date?
@@ -656,15 +658,15 @@ struct CrewDocument: Identifiable, Codable, Hashable {
     var renewedAt: Date?
 
     init(id: String = UUID().uuidString, type: MaritimeDocType = .other, vesselDocType: VesselDocType? = nil,
-         imagePaths: [String] = [], documentNumber: String? = nil, issueDate: Date? = nil,
+         customName: String? = nil, imagePaths: [String] = [], documentNumber: String? = nil, issueDate: Date? = nil,
          expiryDate: Date? = nil, issuingAuthority: String? = nil, notes: String? = nil) {
-        self.id = id; self.type = type; self.vesselDocType = vesselDocType; self.imagePaths = imagePaths
-        self.documentNumber = documentNumber; self.issueDate = issueDate
+        self.id = id; self.type = type; self.vesselDocType = vesselDocType; self.customName = customName
+        self.imagePaths = imagePaths; self.documentNumber = documentNumber; self.issueDate = issueDate
         self.expiryDate = expiryDate; self.issuingAuthority = issuingAuthority; self.notes = notes
     }
 
-    /// Display name: prefers vessel doc type if set
-    var displayName: String { vesselDocType?.displayName ?? type.displayName }
+    /// Display name: custom AI name > vessel doc type > crew doc type
+    var displayName: String { customName ?? vesselDocType?.displayName ?? type.displayName }
     /// Icon: prefers vessel doc type if set
     var docIcon: String { vesselDocType?.icon ?? type.icon }
 

@@ -124,6 +124,21 @@ class KYCViewModel: ObservableObject {
             self.startPollingPendingSessions()
             self.offlineQueue.startObserving(vm: self)
             self.offlineQueue.clearStale()
+
+            // Auto-restore from server if local data is empty
+            if loadedChecks.isEmpty && loadedVessels.isEmpty {
+                Task {
+                    if let backup = await ServerBackupService.shared.pullBackup() {
+                        if !backup.vessels.isEmpty || !backup.checks.isEmpty {
+                            self.vessels = backup.vessels
+                            self.checks = backup.checks
+                            self.saveVessels()
+                            self.saveChecks()
+                            Haptics.success()
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -144,16 +159,31 @@ class KYCViewModel: ObservableObject {
 
     func saveChecks() {
         let e = JSONEncoder(); e.dateEncodingStrategy = .iso8601; e.outputFormatting = .prettyPrinted
-        if let data = try? e.encode(checks) { try? EncryptionService.writeEncrypted(data, to: checksFile) }
+        if let data = try? e.encode(checks) {
+            if checks.isEmpty && FileManager.default.fileExists(atPath: checksFile.path) {
+                let existing = EncryptionService.readDecrypted(from: checksFile)
+                if let existing, existing.count > 10 { return }
+            }
+            try? EncryptionService.writeEncrypted(data, to: checksFile)
+        }
         objectWillChange.send()
         deferHeavyWork()
+        // Server backup — debounced, non-blocking
+        ServerBackupService.shared.scheduleBackup(vessels: vessels, checks: checks)
     }
 
     func saveVessels() {
         let e = JSONEncoder(); e.dateEncodingStrategy = .iso8601; e.outputFormatting = .prettyPrinted
-        if let data = try? e.encode(vessels) { try? EncryptionService.writeEncrypted(data, to: vesselsFile) }
+        if let data = try? e.encode(vessels) {
+            if vessels.isEmpty && FileManager.default.fileExists(atPath: vesselsFile.path) {
+                let existing = EncryptionService.readDecrypted(from: vesselsFile)
+                if let existing, existing.count > 10 { return }
+            }
+            try? EncryptionService.writeEncrypted(data, to: vesselsFile)
+        }
         objectWillChange.send()
         deferHeavyWork()
+        ServerBackupService.shared.scheduleBackup(vessels: vessels, checks: checks)
     }
 
     func saveTransferLog() {
@@ -613,11 +643,16 @@ class KYCViewModel: ObservableObject {
         // Auto-match document type if currently .other and Claude suggests one
         if docs[di].type == .other, let suggested = extraction.suggestedDocType, !suggested.isEmpty {
             if let matched = MaritimeDocType.allCases.first(where: { $0.displayName.localizedCaseInsensitiveContains(suggested) || suggested.localizedCaseInsensitiveContains($0.displayName) }) {
-                docs[di].type = matched
+                let typeExists = docs.contains(where: { $0.id != docs[di].id && $0.type == matched && !$0.imagePaths.isEmpty })
+                if typeExists {
+                    // Keep as additional, set AI-derived custom name
+                    docs[di].customName = suggested
+                } else {
+                    docs[di].type = matched
+                }
             } else {
-                // No exact match — store suggestion in notes for agent review
-                let note = "Suggested type: \(suggested)"
-                docs[di].notes = [docs[di].notes, note].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+                // No enum match — use Claude's suggestion as the custom display name
+                docs[di].customName = suggested
             }
         }
 
@@ -667,6 +702,7 @@ class KYCViewModel: ObservableObject {
 
             let doc = CrewDocument(
                 type: docType,
+                customName: docType == .other ? analyzed.documentType : nil,
                 imagePaths: [filename],
                 documentNumber: analyzed.documentNumber,
                 issueDate: analyzed.issueDate.flatMap { fmt.date(from: $0) },
@@ -676,6 +712,13 @@ class KYCViewModel: ObservableObject {
             )
 
             var docs = checks[ci].documents ?? []
+            // Batch dedup: skip if same type + same doc number already in array
+            let isDuplicate = docs.contains(where: {
+                $0.type == docType && !$0.imagePaths.isEmpty &&
+                (doc.documentNumber != nil && $0.documentNumber == doc.documentNumber)
+            })
+            if isDuplicate { continue }
+
             if let existing = docs.firstIndex(where: { $0.type == docType && $0.imagePaths.isEmpty }) {
                 docs[existing] = doc
             } else { docs.append(doc) }
@@ -718,12 +761,41 @@ class KYCViewModel: ObservableObject {
         autoPushVessel(vesselId: vesselId)
     }
 
-    func addDocument(to checkId: String, document: CrewDocument) {
-        guard let i = checkIndex(checkId) else { return }
+    enum AddDocResult {
+        case added, replacedStub, duplicate(existing: CrewDocument)
+    }
+
+    @discardableResult
+    func addDocument(to checkId: String, document: CrewDocument, force: Bool = false) -> AddDocResult {
+        guard let i = checkIndex(checkId) else { return .added }
         var docs = checks[i].documents ?? []
-        if let existing = docs.firstIndex(where: { $0.type == document.type && $0.imagePaths.isEmpty }) {
-            docs[existing] = document
-        } else { docs.append(document) }
+
+        // Replace empty stub placeholder
+        if let si = docs.firstIndex(where: { $0.type == document.type && $0.imagePaths.isEmpty }) {
+            docs[si] = document
+            checks[i].documents = docs; saveChecks()
+            if let vid = checks[i].vesselId { autoPushVessel(vesselId: vid) }
+            return .replacedStub
+        }
+
+        // Duplicate detection (same type with existing images)
+        if !force, let existing = docs.first(where: { $0.type == document.type && !$0.imagePaths.isEmpty }) {
+            return .duplicate(existing: existing)
+        }
+
+        docs.append(document)
+        checks[i].documents = docs; saveChecks()
+        if let vid = checks[i].vesselId { autoPushVessel(vesselId: vid) }
+        return .added
+    }
+
+    /// Replace an existing document with a new version (for duplicate resolution)
+    func replaceDocument(checkId: String, oldDocId: String, newDoc: CrewDocument) {
+        guard let i = checkIndex(checkId) else { return }
+        guard var docs = checks[i].documents, let di = docs.firstIndex(where: { $0.id == oldDocId }) else { return }
+        var replacement = newDoc
+        replacement.previousVersionId = oldDocId
+        docs[di] = replacement
         checks[i].documents = docs; saveChecks()
         if let vid = checks[i].vesselId { autoPushVessel(vesselId: vid) }
     }

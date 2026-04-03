@@ -151,7 +151,7 @@ struct DocumentPortfolioView: View {
                     }
                     Divider()
                     Button { addingDocType = .other } label: {
-                        Label("Other", systemImage: "doc")
+                        Label("Additional Certificate", systemImage: "doc.badge.plus")
                     }
                 } label: {
                     HStack(spacing: 8) {
@@ -375,6 +375,27 @@ struct QuickAddSheet: View {
                 }
             }
         }
+        .alert("Duplicate Document", isPresented: $showDuplicateAlert) {
+            Button("Replace Existing") {
+                if let existing = duplicateDoc, let pending = pendingDoc {
+                    vm.replaceDocument(checkId: checkId, oldDocId: existing.id, newDoc: pending)
+                    Haptics.success()
+                }
+                dismiss()
+            }
+            Button("Keep Both") {
+                if let pending = pendingDoc {
+                    vm.addDocument(to: checkId, document: pending, force: true)
+                    Haptics.light()
+                }
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {
+                pendingDoc = nil; duplicateDoc = nil
+            }
+        } message: {
+            Text("A \(duplicateDoc?.type.displayName ?? "document") already exists\(duplicateDoc?.documentNumber.map { " (#\($0))" } ?? ""). Would you like to replace it or keep both?")
+        }
     }
 
     private func field(_ label: String, text: Binding<String>, prompt: String) -> some View {
@@ -389,6 +410,9 @@ struct QuickAddSheet: View {
 
     @State private var isSaving = false
     @State private var saveError: String?
+    @State private var showDuplicateAlert = false
+    @State private var duplicateDoc: CrewDocument?
+    @State private var pendingDoc: CrewDocument?
 
     static func renderPDF(_ data: Data?) -> UIImage? {
         guard let data, data.count > 4, data[0] == 0x25, data[1] == 0x50 else { return nil }
@@ -444,7 +468,11 @@ struct QuickAddSheet: View {
         if let oldId = renewingDocId {
             vm.renewDocument(checkId: checkId, oldDocId: oldId, newDoc: doc)
         } else {
-            vm.addDocument(to: checkId, document: doc)
+            let result = vm.addDocument(to: checkId, document: doc)
+            if case .duplicate(let existing) = result {
+                duplicateDoc = existing; pendingDoc = doc; showDuplicateAlert = true
+                return // Don't dismiss — wait for user decision
+            }
         }
 
         // Background OCR enrichment with progress pill

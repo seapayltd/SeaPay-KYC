@@ -35,9 +35,33 @@ struct OwnershipFlowView: View {
     @State private var reportData: Data?
 
     private var vessel: Vessel? { vm.vessels.first { $0.id == vesselId } }
-    private var ubos: [OwnershipPerson] { persons.filter { $0.ownershipPercent >= 25 } }
+    private var ubos: [OwnershipPerson] {
+        // Deduplicate by name — same person with multiple roles counted once
+        var seen = Set<String>()
+        return persons.filter { $0.ownershipPercent >= 25 }.filter { seen.insert($0.name.lowercased()).inserted }
+    }
     private var allUBOsVerified: Bool { ubos.allSatisfy { p in p.checkId != nil && vm.checks.first(where: { $0.id == p.checkId })?.status == .passed } }
     private var canGenerateReport: Bool { !persons.isEmpty }
+
+    /// Merge duplicate entries: same name → keep the one with highest ownership % and a checkId
+    private func deduplicatePersons() {
+        var merged: [String: OwnershipPerson] = [:]
+        for p in persons {
+            let key = p.name.lowercased()
+            if var existing = merged[key] {
+                // Keep the higher ownership percent
+                if p.ownershipPercent > existing.ownershipPercent { existing.ownershipPercent = p.ownershipPercent }
+                // Keep the checkId if one has it
+                if existing.checkId == nil && p.checkId != nil { existing.checkId = p.checkId }
+                // Prefer non-shareholder role (director/UBO is more specific)
+                if existing.role == .shareholder && p.role != .shareholder { existing.role = p.role }
+                merged[key] = existing
+            } else {
+                merged[key] = p
+            }
+        }
+        persons = Array(merged.values).sorted { $0.ownershipPercent > $1.ownershipPercent }
+    }
 
     var body: some View {
         NavigationStack {
@@ -575,6 +599,7 @@ struct OwnershipFlowView: View {
                     analysisResult = summary
                 }
 
+                deduplicatePersons()
                 analyzing = false
             }
         } catch {
@@ -611,6 +636,7 @@ struct OwnershipFlowView: View {
             persons += (os.beneficiaries ?? []).map { sh in
                 OwnershipPerson(id: sh.id, name: sh.name, ownershipPercent: sh.ownershipPercent, role: .beneficiary, checkId: sh.checkId)
             }
+            deduplicatePersons()
             return
         }
 
