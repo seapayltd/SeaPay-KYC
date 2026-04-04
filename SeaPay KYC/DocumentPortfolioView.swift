@@ -9,6 +9,7 @@
 
 import SwiftUI
 import UniformTypeIdentifiers
+import EventKit
 
 struct DocumentPortfolioView: View {
     @ObservedObject var vm: KYCViewModel
@@ -692,17 +693,19 @@ struct DocumentDetailSheet: View {
                             .padding(.horizontal, 32)
                         }
 
-                        Button {
-                            showRenew = true
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "arrow.clockwise")
-                                Text("Renew Document")
+                        HStack(spacing: 10) {
+                            Button { showRenew = true } label: {
+                                HStack(spacing: 8) { Image(systemName: "arrow.clockwise"); Text("Renew") }
+                                    .font(Typo.body).fontWeight(.medium)
+                                    .frame(maxWidth: .infinity).padding(.vertical, 12)
+                                    .background(Color.surfaceMuted).clipShape(RoundedRectangle(cornerRadius: 10))
                             }
-                            .font(Typo.body).fontWeight(.medium)
-                            .frame(maxWidth: .infinity).padding(.vertical, 12)
-                            .background(Color.surfaceMuted)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            Button { addExpiryToCalendar() } label: {
+                                HStack(spacing: 8) { Image(systemName: "calendar.badge.plus"); Text("Remind") }
+                                    .font(Typo.body).fontWeight(.medium)
+                                    .frame(maxWidth: .infinity).padding(.vertical, 12)
+                                    .background(Color.surfaceMuted).clipShape(RoundedRectangle(cornerRadius: 10))
+                            }
                         }
                         .padding(.horizontal, 32)
                     }
@@ -750,6 +753,25 @@ struct DocumentDetailSheet: View {
         document.expiryDate = editHasExpiry ? editExpiry : nil
         vm.updateDocument(checkId: checkId, document: document)
         Haptics.success()
+    }
+
+    private func addExpiryToCalendar() {
+        guard let expiry = document.expiryDate else { return }
+        let store = EKEventStore()
+        store.requestWriteOnlyAccessToEvents { granted, _ in
+            guard granted else { return }
+            let event = EKEvent(eventStore: store)
+            let check = vm.checks.first(where: { $0.id == checkId })
+            event.title = "Renewal: \(document.displayName) — \(check?.displayName ?? "")"
+            event.startDate = Calendar.current.date(byAdding: .day, value: -14, to: expiry) ?? expiry
+            event.endDate = event.startDate
+            event.isAllDay = true
+            event.addAlarm(EKAlarm(relativeOffset: 0))
+            event.notes = "Document expires \(expiry.formatted(date: .long, time: .omitted)). Renew before expiry."
+            event.calendar = store.defaultCalendarForNewEvents
+            try? store.save(event, span: .thisEvent)
+            DispatchQueue.main.async { Haptics.success() }
+        }
     }
 }
 

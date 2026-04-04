@@ -14,6 +14,7 @@ struct VesselDetailView: View {
     @ObservedObject var vm: KYCViewModel
     let vessel: Vessel
     @State private var selectedCheckId: String?
+    @State private var crewSearchText = ""
     @State private var inviteCheck: KYCCheck?
     @State private var exportPDFPath: NavigationPath = NavigationPath()
     @State private var showExportPDF = false
@@ -37,7 +38,16 @@ struct VesselDetailView: View {
     @State private var selectedPhoto: PhotosPickerItem?
 
     private var v: Vessel { vm.vessels.first(where: { $0.id == vessel.id }) ?? vessel }
-    private var crew: [KYCCheck] { vm.checksForVessel(vessel.id) }
+    private var crew: [KYCCheck] {
+        let all = vm.checksForVessel(vessel.id)
+        guard !crewSearchText.isEmpty else { return all }
+        return all.filter {
+            $0.customerName.localizedCaseInsensitiveContains(crewSearchText) ||
+            ($0.crewRank?.rawValue ?? "").localizedCaseInsensitiveContains(crewSearchText) ||
+            ($0.nationality ?? "").localizedCaseInsensitiveContains(crewSearchText) ||
+            $0.entityType.rawValue.localizedCaseInsensitiveContains(crewSearchText)
+        }
+    }
     private var seafarerCrew: [KYCCheck] { crew.filter { $0.entityType.category == .crew }.sorted { statusPriority($0.status) < statusPriority($1.status) } }
     private var shoreBasedPersonnel: [KYCCheck] { crew.filter { $0.entityType.category == .shoreBased }.sorted { statusPriority($0.status) < statusPriority($1.status) } }
     private var complianceEntities: [KYCCheck] { crew.filter { $0.entityType.category == .ownership }.sorted { statusPriority($0.status) < statusPriority($1.status) } }
@@ -241,6 +251,7 @@ struct VesselDetailView: View {
         .background(Color.surface.ignoresSafeArea())
         .navigationTitle(v.name)
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $crewSearchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search crew")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {

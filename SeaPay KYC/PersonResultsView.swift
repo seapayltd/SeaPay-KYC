@@ -414,6 +414,10 @@ struct PersonResultsView: View {
                     Divider()
                     Button { showContactEditor = true } label: { Label("Edit Details", systemImage: "pencil") }
                     Button { editedName = c.extractedName ?? c.customerName; showAMLRerun = true } label: { Label("Re-run AML", systemImage: "arrow.counterclockwise") }
+                    Divider()
+                    if let url = URL(string: "oceancheck://crew/\(checkId)") {
+                        ShareLink(item: url) { Label("Share Link", systemImage: "link") }
+                    }
                 }
             } label: { Image(systemName: "ellipsis.circle").font(.system(size: 17)) }
         }

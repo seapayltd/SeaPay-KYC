@@ -38,6 +38,8 @@ struct SeaPay_KYCApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("colorSchemePreference") private var colorSchemePref = 0
     @State private var ownerAccessCode: String? = UserDefaults.standard.string(forKey: "ownerAccessCode")
+    @State private var deepLinkVesselId: String?
+    @State private var deepLinkCheckId: String?
 
     init() {
         // Lightweight only — heavy work deferred to .onAppear
@@ -149,6 +151,16 @@ struct SeaPay_KYCApp: App {
                 }
             }
             .preferredColorScheme(preferredColorScheme)
+            .sheet(isPresented: Binding(get: { deepLinkVesselId != nil }, set: { if !$0 { deepLinkVesselId = nil } })) {
+                if let vid = deepLinkVesselId, let vessel = vm.vessels.first(where: { $0.id == vid }) {
+                    NavigationStack { VesselDetailView(vm: vm, vessel: vessel) }
+                }
+            }
+            .sheet(isPresented: Binding(get: { deepLinkCheckId != nil }, set: { if !$0 { deepLinkCheckId = nil } })) {
+                if let cid = deepLinkCheckId {
+                    NavigationStack { PersonView(vm: vm, checkId: cid) }
+                }
+            }
             .fullScreenCover(isPresented: $appState.showSubjectFlow) {
                 SubjectFlowView(appState: appState)
             }
@@ -172,8 +184,17 @@ struct SeaPay_KYCApp: App {
                     return
                 }
                 if url.scheme == AppConfiguration.urlScheme {
-                    appState.incomingDeepLink = url
-                    appState.showSubjectFlow = true
+                    // Deep link routing: oceancheck://vessel/{id} or oceancheck://crew/{id}
+                    let host = url.host ?? ""
+                    let pathId = url.pathComponents.count > 1 ? url.pathComponents[1] : ""
+                    if host == "vessel" && !pathId.isEmpty {
+                        deepLinkVesselId = pathId
+                    } else if host == "crew" && !pathId.isEmpty {
+                        deepLinkCheckId = pathId
+                    } else {
+                        appState.incomingDeepLink = url
+                        appState.showSubjectFlow = true
+                    }
                 }
             }
             .sheet(isPresented: $showImportSheet) {
