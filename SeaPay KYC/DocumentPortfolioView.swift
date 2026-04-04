@@ -558,6 +558,12 @@ struct DocumentDetailSheet: View {
     @State var document: CrewDocument
     @Environment(\.dismiss) private var dismiss
     @State private var showRenew = false
+    @State private var showDeleteConfirm = false
+    @State private var showEditMeta = false
+    @State private var editDocNum = ""
+    @State private var editIssuer = ""
+    @State private var editExpiry = Date()
+    @State private var editHasExpiry = false
     @State private var previewImage: UIImage?
     @State private var previewFilename: String?
     @State private var shareData: Data?
@@ -632,8 +638,34 @@ struct DocumentDetailSheet: View {
                         if let n = document.documentNumber, !n.isEmpty { DataRow(label: "Number", value: n) }
                         if let d = document.expiryDate { DataRow(label: "Expires", value: d.formatted(date: .long, time: .omitted), color: document.status == .expired ? .flagged : nil) }
                         if let a = document.issuingAuthority, !a.isEmpty { DataRow(label: "Issued by", value: a) }
+                        Button { loadEditMeta(); showEditMeta = true } label: {
+                            Text("Edit Details").font(Typo.meta).foregroundStyle(.secondary)
+                        }.buttonStyle(.plain)
                     }
                     .padding(.horizontal, 32)
+                    .sheet(isPresented: $showEditMeta) {
+                        NavigationStack {
+                            VStack(spacing: 16) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Document Number").font(Typo.meta).foregroundStyle(.tertiary)
+                                    TextField("Number", text: $editDocNum).font(Typo.body).padding(11).background(Color.surfaceMuted).clipShape(RoundedRectangle(cornerRadius: 10))
+                                }
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Issuing Authority").font(Typo.meta).foregroundStyle(.tertiary)
+                                    TextField("Issuer", text: $editIssuer).font(Typo.body).padding(11).background(Color.surfaceMuted).clipShape(RoundedRectangle(cornerRadius: 10))
+                                }
+                                Toggle("Has Expiry", isOn: $editHasExpiry).font(Typo.meta).tint(.primary)
+                                if editHasExpiry { DatePicker("Expiry", selection: $editExpiry, displayedComponents: .date).font(Typo.meta) }
+                                Spacer()
+                            }
+                            .padding(20)
+                            .navigationTitle("Edit Document").navigationBarTitleDisplayMode(.inline)
+                            .toolbar {
+                                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showEditMeta = false } }
+                                ToolbarItem(placement: .confirmationAction) { Button("Save") { saveEditMeta(); showEditMeta = false }.fontWeight(.semibold) }
+                            }
+                        }.presentationDetents([.medium])
+                    }
 
                     Spacer(minLength: 16)
 
@@ -676,11 +708,14 @@ struct DocumentDetailSheet: View {
                     }
 
                     Button(role: .destructive) {
-                        vm.removeDocument(checkId: checkId, documentId: document.id)
-                        dismiss()
+                        showDeleteConfirm = true
                     } label: {
                         Text("Remove Document").font(Typo.meta)
                     }
+                    .alert("Remove Document", isPresented: $showDeleteConfirm) {
+                        Button("Remove", role: .destructive) { vm.removeDocument(checkId: checkId, documentId: document.id); dismiss() }
+                        Button("Cancel", role: .cancel) {}
+                    } message: { Text("This will permanently remove this document and its images.") }
 
                     Spacer(minLength: 32)
                 }
@@ -700,6 +735,21 @@ struct DocumentDetailSheet: View {
                 if let data = shareData { ActivityView(items: [data]) }
             }
         }
+    }
+
+    private func loadEditMeta() {
+        editDocNum = document.documentNumber ?? ""
+        editIssuer = document.issuingAuthority ?? ""
+        editHasExpiry = document.expiryDate != nil
+        editExpiry = document.expiryDate ?? Date()
+    }
+
+    private func saveEditMeta() {
+        document.documentNumber = editDocNum.isEmpty ? nil : editDocNum
+        document.issuingAuthority = editIssuer.isEmpty ? nil : editIssuer
+        document.expiryDate = editHasExpiry ? editExpiry : nil
+        vm.updateDocument(checkId: checkId, document: document)
+        Haptics.success()
     }
 }
 

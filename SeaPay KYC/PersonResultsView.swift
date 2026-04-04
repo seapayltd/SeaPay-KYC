@@ -143,8 +143,17 @@ struct PersonResultsView: View {
 
     private var quickActions: some View {
         HStack(spacing: 16) {
-            if let p = c.phoneNumber, !p.isEmpty { actionCircle("phone.fill", "Call") { if let u = URL(string: "tel:\(p)") { UIApplication.shared.open(u) } } }
-            if let e = c.emailAddress, !e.isEmpty { actionCircle("envelope.fill", "Email") { if let u = URL(string: "mailto:\(e)") { UIApplication.shared.open(u) } } }
+            if let p = c.phoneNumber, !p.isEmpty {
+                actionCircle("phone.fill", "Call") {
+                    let cleaned = p.filter { $0.isNumber || $0 == "+" }
+                    if !cleaned.isEmpty, let u = URL(string: "tel:\(cleaned)") { UIApplication.shared.open(u) }
+                }
+            }
+            if let e = c.emailAddress, !e.isEmpty {
+                actionCircle("envelope.fill", "Email") {
+                    if e.contains("@"), let u = URL(string: "mailto:\(e)") { UIApplication.shared.open(u) }
+                }
+            }
             if c.phoneNumber != nil || c.emailAddress != nil { actionCircle("person.crop.rectangle", "vCard") { exportVCard() } }
             if !isCollaborator { actionCircle("arrow.up.doc.fill", "Upload") { showMagicUpload = true } }
             NavigationLink { DocumentPortfolioView(vm: vm, checkId: checkId) } label: { actionLabel("folder.fill", "Docs") }
