@@ -11,7 +11,22 @@
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>OceanCheck accesses your photo library to import identity documents and certificates.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>OceanCheck records your location for verification audit trails.</string>
+	<string>OceanCheck records your location when verifying identity documents for compliance audit trails.</string>
+	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
+	<string>OceanCheck adds renewal reminders for expiring maritime certificates to your calendar.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>oceancheck</string>
+			</array>
+			<key>CFBundleURLName</key>
+			<string>com.navemagna.SeaPay-KYC</string>
+		</dict>
+	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>UIAppFonts</key>
 	<array>
 		<string>ivy-mode-regular.ttf</string>

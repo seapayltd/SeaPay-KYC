@@ -445,7 +445,9 @@ struct PersonResultsView: View {
                     await MainActor.run { vm.setProfilePhoto(checkId: checkId, imageData: photo.data) }
                 }
             } catch {
+                #if DEBUG
                 print("Profile photo load failed: \(error)")
+                #endif
             }
             // Reset so picking the same photo again triggers onChange
             await MainActor.run { selProfilePhoto = nil }

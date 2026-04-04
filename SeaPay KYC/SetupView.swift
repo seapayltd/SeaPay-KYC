@@ -536,6 +536,21 @@ struct SettingsSheet: View {
                             }
                         }
                         Divider().padding(.leading, 44)
+                        // AI consent toggle
+                        HStack(spacing: 12) {
+                            Image(systemName: "brain").font(.system(size: 15)).foregroundStyle(.secondary).frame(width: 24)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("AI Document Processing").font(Typo.body)
+                                Text("Document images are sent to Anthropic Claude for OCR extraction. Data is not used for AI training.").font(Typo.meta).foregroundStyle(.tertiary)
+                            }
+                            Spacer()
+                            Toggle("", isOn: Binding(
+                                get: { ClaudeService.hasAIConsent },
+                                set: { if $0 { ClaudeService.grantAIConsent() }; Haptics.light() }
+                            )).labelsHidden().tint(.primary)
+                        }
+                        .padding(.horizontal, 16).padding(.vertical, 8)
+                        Divider().padding(.leading, 44)
                         settingsRow(icon: "link", label: "Workflow ID") {
                             TextField("For invitations", text: $workflowID)
                                 .textInputAutocapitalization(.never).autocorrectionDisabled()

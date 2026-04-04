@@ -17,6 +17,16 @@ actor ClaudeService {
     private let apiVersion = "2023-06-01"
     private let logger = Logger(subsystem: "com.seapay.kyc", category: "Claude")
 
+    /// Check if user has consented to AI data processing
+    static var hasAIConsent: Bool {
+        UserDefaults.standard.bool(forKey: "aiProcessingConsent")
+    }
+
+    /// Record user's AI consent
+    static func grantAIConsent() {
+        UserDefaults.standard.set(true, forKey: "aiProcessingConsent")
+    }
+
     private var apiKey: String {
         KeychainService.get(.claudeAPIKey) ?? ""
     }
@@ -261,6 +271,7 @@ actor ClaudeService {
 
     func extractMaritimeDocument(imageData: Data, docType: String) async throws -> DocExtraction {
         guard !apiKey.isEmpty else { throw ClaudeError.noAPIKey }
+        guard Self.hasAIConsent else { throw ClaudeError.noConsent }
         await MainActor.run { APIUsageTracker.track(.claudeOCR) }
         let base64 = imageData.base64EncodedString()
         let mediaType = detectMediaType(imageData)
@@ -776,12 +787,14 @@ extension Optional where Wrapped == String {
 
 enum ClaudeError: LocalizedError {
     case noAPIKey
+    case noConsent
     case invalidResponse
     case apiError(Int, String)
 
     var errorDescription: String? {
         switch self {
         case .noAPIKey: return "Claude API key not set. Add it in Settings."
+        case .noConsent: return "AI document processing requires your consent. Enable in Settings."
         case .invalidResponse: return "Invalid response from Claude."
         case .apiError(let code, let msg): return "Claude API error (\(code)): \(msg.prefix(100))"
         }
