@@ -110,6 +110,10 @@ struct PersonResultsView: View {
                 Menu {
                     Button { showProfileCam = true } label: { Label("Take Photo", systemImage: "camera") }
                     Button { showPhotoPicker = true } label: { Label("Choose from Library", systemImage: "photo") }
+                    if c.profilePhoto != nil {
+                        Divider()
+                        Button(role: .destructive) { vm.removeProfilePhoto(checkId: checkId) } label: { Label("Remove Photo", systemImage: "trash") }
+                    }
                 } label: {
                     avatar(72)
                         .overlay(alignment: .bottomTrailing) {
@@ -311,7 +315,7 @@ struct PersonResultsView: View {
                 TextField("Observations...", text: $notes, axis: .vertical).font(Typo.meta).lineLimit(2...4)
                     .padding(10).background(Color.surfaceMuted).clipShape(RoundedRectangle(cornerRadius: 10)).disabled(isCollaborator)
                 if !isCollaborator && notes != (c.agentNotes ?? "") && !notes.isEmpty {
-                    Button("Save") { vm.updateAgentNotes(checkId: checkId, notes: notes) }.font(Typo.meta)
+                    Button("Save") { vm.updateAgentNotes(checkId: checkId, notes: notes); Haptics.success() }.font(Typo.meta)
                 }
             }.padding(.horizontal, 20).padding(.top, 16)
         }
@@ -324,16 +328,26 @@ struct PersonResultsView: View {
             Divider()
             if let decision = c.reviewDecision {
                 // Show current decision prominently + change option
-                HStack {
-                    HStack(spacing: 6) {
-                        Circle().fill(decision == .approved ? Color.clear_ : decision == .flagged ? Color.flagged : Color.review)
-                            .frame(width: 8, height: 8)
-                        Text(decision.rawValue).font(Typo.body)
-                            .foregroundStyle(decision == .approved ? Color.clear_ : decision == .flagged ? Color.flagged : Color.review)
+                VStack(spacing: 2) {
+                    HStack {
+                        HStack(spacing: 6) {
+                            Circle().fill(decision == .approved ? Color.clear_ : decision == .flagged ? Color.flagged : Color.review)
+                                .frame(width: 8, height: 8)
+                            Text(decision.rawValue).font(Typo.body)
+                                .foregroundStyle(decision == .approved ? Color.clear_ : decision == .flagged ? Color.flagged : Color.review)
+                        }
+                        Spacer()
+                        Button { withAnimation(.smooth(duration: 0.2)) { showChangeOpts.toggle() } } label: {
+                            Text("Change").font(Typo.body).foregroundStyle(.secondary)
+                        }
                     }
-                    Spacer()
-                    Button { withAnimation(.smooth(duration: 0.2)) { showChangeOpts.toggle() } } label: {
-                        Text("Change").font(Typo.body).foregroundStyle(.secondary)
+                    // Audit trail
+                    if let by = c.reviewedBy, !by.isEmpty {
+                        HStack {
+                            Text("by \(by)").font(Typo.meta).foregroundStyle(.tertiary)
+                            if let at = c.reviewedAt { Text("· \(at.formatted(date: .abbreviated, time: .shortened))").font(Typo.meta).foregroundStyle(.quaternary) }
+                            Spacer()
+                        }
                     }
                 }
                 .padding(.horizontal, 20).padding(.vertical, 10)

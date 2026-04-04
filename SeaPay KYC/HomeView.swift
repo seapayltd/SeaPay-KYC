@@ -24,8 +24,10 @@ struct HomeView: View {
     @State private var csvURL: URL?
     @State private var searchText = ""
     @State private var tab = UserDefaults.standard.bool(forKey: "isCollaborator") ? 2 : 0
-    @State private var allFilter = 0
-    @State private var sortOption = 0  // 0=Name, 1=Expiry, 2=Status
+    @AppStorage("crewFilter") private var allFilter = 0
+    @AppStorage("crewSort") private var sortOption = 0
+    @AppStorage("crewSortAsc") private var sortAscending = true
+    @State private var confirmDeleteCheckId: String?
     @State private var previousTab = 0
     private var isCollaborator: Bool { UserDefaults.standard.bool(forKey: "isCollaborator") && AppConfiguration.apiKey.isEmpty }
 
@@ -117,9 +119,7 @@ struct HomeView: View {
         .sheet(item: $selectedVesselForAdd) { vessel in
             AddCrewSheet(vm: vm, vesselId: vessel.id) { check, method in
                 selectedVesselForAdd = nil
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                    if method == .invite { inviteCheck = check } else { selectedCheckId = check.id }
-                }
+                if method == .invite { inviteCheck = check }
             }
         }
     }
@@ -457,8 +457,10 @@ struct HomeView: View {
                         Button { sortOption = 0 } label: { Label("Name", systemImage: sortOption == 0 ? "checkmark" : "") }
                         Button { sortOption = 1 } label: { Label("Expiry", systemImage: sortOption == 1 ? "checkmark" : "") }
                         Button { sortOption = 2 } label: { Label("Status", systemImage: sortOption == 2 ? "checkmark" : "") }
+                        Divider()
+                        Button { sortAscending.toggle() } label: { Label(sortAscending ? "Descending" : "Ascending", systemImage: sortAscending ? "arrow.down" : "arrow.up") }
                     } label: {
-                        Image(systemName: "arrow.up.arrow.down").font(.system(size: 13)).foregroundStyle(.secondary)
+                        Image(systemName: sortAscending ? "arrow.up.arrow.down" : "arrow.down.arrow.up").font(.system(size: 13)).foregroundStyle(.secondary)
                             .frame(width: 36, height: 36)
                     }
                     .padding(.trailing, 12)
@@ -503,13 +505,19 @@ struct HomeView: View {
                                     Button { vm.unassignCheckFromVessel(checkId: check.id) } label: { Label("Remove from Vessel", systemImage: "minus.circle") }
                                 }
                                 Divider()
-                                Button(role: .destructive) { vm.deleteCheckById(check.id) } label: { Label("Delete", systemImage: "trash") }
+                                Button(role: .destructive) { confirmDeleteCheckId = check.id } label: { Label("Delete", systemImage: "trash") }
                             }
                         }
                     }
                 }
             }
             .padding(.bottom, 80)
+        }
+        .alert("Delete Person", isPresented: Binding(get: { confirmDeleteCheckId != nil }, set: { if !$0 { confirmDeleteCheckId = nil } })) {
+            Button("Delete", role: .destructive) { if let id = confirmDeleteCheckId { vm.deleteCheckById(id) } }
+            Button("Cancel", role: .cancel) { confirmDeleteCheckId = nil }
+        } message: {
+            Text("This will permanently remove this person and all their documents. This cannot be undone.")
         }
     }
 
@@ -541,19 +549,20 @@ struct HomeView: View {
             }
         }
         // Sort
+        let asc = sortAscending
         switch sortOption {
-        case 1: // Expiry (soonest first)
+        case 1:
             let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
             result.sort { a, b in
                 let da = a.expiryDate.flatMap { fmt.date(from: $0) } ?? .distantFuture
                 let db = b.expiryDate.flatMap { fmt.date(from: $0) } ?? .distantFuture
-                return da < db
+                return asc ? da < db : da > db
             }
-        case 2: // Status (flagged first)
+        case 2:
             let order: [KYCCheck.CheckStatus: Int] = [.failed: 0, .requiresReview: 1, .pending: 2, .inProgress: 3, .incomplete: 4, .passed: 5]
-            result.sort { (order[$0.status] ?? 9) < (order[$1.status] ?? 9) }
-        default: // Name A-Z
-            result.sort { $0.displayName.localizedCompare($1.displayName) == .orderedAscending }
+            result.sort { asc ? (order[$0.status] ?? 9) < (order[$1.status] ?? 9) : (order[$0.status] ?? 9) > (order[$1.status] ?? 9) }
+        default:
+            result.sort { asc ? $0.displayName.localizedCompare($1.displayName) == .orderedAscending : $0.displayName.localizedCompare($1.displayName) == .orderedDescending }
         }
         return result
     }

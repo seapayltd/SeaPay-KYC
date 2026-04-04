@@ -189,16 +189,18 @@ struct PersonConfigView: View {
 
     private func runPipeline() async {
         guard let front = frontImage else { return }
-        busy = true; error = nil; progressText = "Scanning document..."
+        let steps = 1 + (depth.includesAML ? 1 : 0) + (depth.includesPoA ? 1 : 0)
+        var step = 1
+        busy = true; error = nil; progressText = "Step \(step)/\(steps): Scanning document..."
         do {
             _ = try await vm.runIDScan(checkId: c.id, frontImage: front, backImage: backImage)
             busy = false
             if depth.includesAML {
-                progressText = "Checking compliance..."
+                step += 1; progressText = "Step \(step)/\(steps): Checking compliance..."
                 do { _ = try await vm.runAMLScreening(checkId: c.id, monitoring: monitoring) } catch { self.error = "AML: \(error.localizedDescription)" }
             } else { vm.finalizeIDOnly(checkId: c.id) }
             if depth.includesPoA, let img = poaImage {
-                progressText = "Verifying address..."
+                step += 1; progressText = "Step \(step)/\(steps): Verifying address..."
                 do { _ = try await vm.runPoA(checkId: c.id, documentImage: img, expectedName: c.extractedName, expectedAddress: nil) { _ in } } catch { self.error = "PoA: \(error.localizedDescription)" }
             }
         } catch { self.error = error.localizedDescription; busy = false }

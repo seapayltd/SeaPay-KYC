@@ -833,6 +833,15 @@ class KYCViewModel: ObservableObject {
         }
     }
 
+    func removeProfilePhoto(checkId: String) {
+        guard let i = checkIndex(checkId) else { return }
+        if let filename = checks[i].profilePhoto {
+            invalidateImageCache(filename: filename)
+            try? FileManager.default.removeItem(at: imagesDir.appendingPathComponent(filename))
+        }
+        checks[i].profilePhoto = nil; saveChecks()
+    }
+
     func renewDocument(checkId: String, oldDocId: String, newDoc: CrewDocument) {
         guard let i = checkIndex(checkId) else { return }
         guard var docs = checks[i].documents, let di = docs.firstIndex(where: { $0.id == oldDocId }) else { return }

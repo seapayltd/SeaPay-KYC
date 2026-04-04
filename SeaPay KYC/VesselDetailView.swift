@@ -269,9 +269,7 @@ struct VesselDetailView: View {
         .sheet(item: $selectedVesselDoc) { doc in VesselDocDetailSheet(vm: vm, vesselId: vessel.id, document: doc) }
         .sheet(isPresented: $showAddCrew) { AddCrewSheet(vm: vm, vesselId: vessel.id, onCreated: { check, method in
             showAddCrew = false
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                if method == .invite { inviteCheck = check } else { selectedCheckId = check.id }
-            }
+            if method == .invite { inviteCheck = check }
         }) }
         .sheet(isPresented: $showAssignExisting) { AssignExistingSheet(vm: vm, vesselId: vessel.id) }
         .navigationDestination(isPresented: $showExportCrewList) { CrewListPreview(vm: vm, vessel: vessel) }
@@ -299,7 +297,6 @@ struct VesselDetailView: View {
         .sheet(isPresented: $showAddCompliance) {
             AddComplianceSheet(vm: vm, vesselId: vessel.id) { check in
                 showAddCompliance = false
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { selectedCheckId = check.id }
             }
         }
     }
